@@ -10,25 +10,7 @@
 #   variables, and computing the Wet Bulb Globe Temperature (WBGT) using a combination of R and optimized
 #   C++ routines. Processed data is saved as Parquet files for further analysis.
 #
-#   NOTE:
-#     Downstream derivations for county-level or census tract-level metrics are performed in separate 
-#     scripts:
-#       * era5-hourly-daily-censustract-20250306.R
-#       * era5-hourly-daily-counties-20250224-V3.R
-#
-# Requirements:
-#   - R (version 4.x or later recommended)
-#   - Required R packages: data.table, wbgt, jj, arrow, ncdf4, units, Rcpp, RcppParallel, foreach, doParallel
-#   - External dependency: C++ source file ("wbgt_cpp.cpp") located at the specified path.
-#   - System: Windows with WSL configured for GRIB-to-NetCDF conversion.
-#
-# Usage:
-#   1. Configure input parameters (e.g., file paths, year/month ranges, number of threads).
-#   2. Run this script to process ERA5 data and compute WBGT.
-#   3. Processed data is saved as Parquet files for downstream analysis.
-#
-# Revision History:
-#   - [Insert Creation Date]: Initial version.
+# Date]: Initial version.
 #   - March 09, 2025: Updated for improved error handling, unit conversion, and parallel processing.
 #
 ####################################################################################################
