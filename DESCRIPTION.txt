@@ -1,0 +1,17 @@
+Package: chiR
+Type: Package
+Title: Shared R helpers for CHI
+Version: 0.1.0
+Author: Jordan Clark
+Maintainer: Jordan Clark <YOUR_EMAIL@duke.edu>
+Description: Small helpers (arrow/data.table/qa)
+License: MIT
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Depends: R (>= 4.2)
+Imports:
+    data.table,
+    arrow
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
