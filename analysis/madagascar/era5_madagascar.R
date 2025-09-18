@@ -23,15 +23,19 @@ source(here("helpers", "helpers.R"))
 #
 # To check what R sees:
 # Sys.getenv("ERA5_MADAGASCAR")
-
+Sys.setenv("ERA5_MADAGASCAR" = "G:/My Drive/Duke/DGHI/data/era5/")
 era5_root <- Sys.getenv("ERA5_MADAGASCAR", unset = NA)
 if (is.na(era5_root)) {
   stop("Environment variable ERA5_MADAGASCAR not set. Please edit your .Renviron.")
   # usethis::edit_r_environ("project")
-  # Sys.setenv("ERA5_MADAGASCAR" = "G:/My Drive/Duke/DGHI/data/")
+  # Sys.setenv("ERA5_MADAGASCAR" = "G:/My Drive/Duke/DGHI/data/era5/")
 }
 
-out_root <- file.path(era5_root, "madagascar_outputs")
+Sys.setenv("ERA5_OUT" = "C:/Users/jordan/Desktop/madagascar")
+Sys.setenv("ERA5_STREAM" = "C:/Users/jordan/Desktop/madagascar/stream")
+
+
+out_root <- Sys.getenv("ERA5_OUT", unset = "C:/data/chi_outputs/madagascar")
 dir.create(out_root, recursive = TRUE, showWarnings = FALSE)
 
 stream_dir <- Sys.getenv("ERA5_STREAM", unset = file.path(out_root, "streamed"))
@@ -53,7 +57,6 @@ villages <- data.table(
   lat     = c(-14.6073478, -14.4774428),
   elev_m  = c(1347, 1348)
 )
-
 
 
 
@@ -207,10 +210,62 @@ read_one_year_raw <- function(yr) {
   } else {
     VAR_WIND10 = 'wind2m_scaled10_ms1'
   }
-  # names(ds)
-  # names(ds)
-  # validTime ??? timestamp UTC ??? local date/hour
-  # compute derived variables lazily; collect at end
+  # yr2301 = open_dataset("E:/data/gridded/era5-africa/processed/2023/01")
+  # yr2301 = yr2301 %>% collect()
+  # yr2301$validTime = as.POSIXct(yr2301$validTime, tz = 'UTC')
+  # # 
+  # # yr2301$date = as.Date(yr2301$validTime)
+  # # 
+  # # names(ds)
+  # # names(ds)
+  # # validTime ??? timestamp UTC ??? local date/hour
+  # # compute derived variables lazily; collect at end
+  # dt <- ds |>
+  #   select(all_of(c(VAR_LATIDX, VAR_LONIDX, VAR_VALIDTIME,
+  #                                     VAR_SSRD, VAR_TA10, VAR_TD10, VAR_WBGT10, VAR_WIND10)))|>
+  #   collect()
+  # 
+  # 
+  # 
+  # setDT(dt)
+  # 
+  # # --- eager transformations in R ---
+  # # validTime ??? POSIXct UTC
+  # dt[, validTime := as.POSIXct(get(VAR_VALIDTIME), origin = "1970-01-01", tz = "UTC")]
+  # 
+  # # local time shifted by offset (seconds)
+  # dt[, local_ts := validTime + tz_offset_sec]
+  # 
+  # # date + hour
+  # dt[, `:=`(
+  #   date = as.Date(local_ts, tz = tz_local),
+  #   hour = lhour(local_ts)
+  # )]
+  # 
+  # # scale variables
+  # dt[, ta   := round(get(VAR_TA10)   / 10, 1)]
+  # dt[, td   := round(get(VAR_TD10)   / 10, 1)]
+  # dt[, wbgt := round(get(VAR_WBGT10) / 10, 1)]
+  # dt[, wind := round(get(VAR_WIND10) / 10, 1)]
+  # 
+  # # humidity / vapor pressure
+  # dt[, `:=`(
+  #   rh = exp((17.62 * td) / (243.12 + td) - (17.62 * ta) / (243.12 + ta)) * 100,
+  #   es = 0.6108 * exp(17.27 * ta / (ta + 237.3)),
+  #   ea = 0.6108 * exp(17.27 * td / (td + 237.3))
+  # )]
+  # dt[, vpd := pmax(es - ea, 0.0)]
+  # 
+  # # radiation in MJ/m2
+  # dt[, ssrd_MJ := get(VAR_SSRD) / 1e6]
+  # 
+  # # enforce integer grid indices
+  # setnames(dt, c(VAR_LATIDX, VAR_LONIDX), c("lat_idx_x4","lon_idx_x4"))
+  # dt[, `:=`(
+  #   lat_idx_x4 = as.integer(lat_idx_x4),
+  #   lon_idx_x4 = as.integer(lon_idx_x4)
+  # )]
+
   dt <- ds |>
     select(all_of(c(VAR_LATIDX, VAR_LONIDX, VAR_VALIDTIME,
                     VAR_SSRD, VAR_TA10, VAR_TD10, VAR_WBGT10, VAR_WIND10))) |>
@@ -220,22 +275,22 @@ read_one_year_raw <- function(yr) {
       local_ts  = cast(cast(validTime, int64()) + tz_offset_sec, timestamp("s")),
       date      = cast(local_ts, date32()),
       hour      = hour(local_ts),
-      
+
       ta   = round(cast(!!sym(VAR_TA10),    float64()) / 10, 1),
       td   = round(cast(!!sym(VAR_TD10),    float64()) / 10, 1),
       wbgt = round(cast(!!sym(VAR_WBGT10),  float64()) / 10, 1),
       wind = round(cast(!!sym(VAR_WIND10),  float64()) / 10, 1),
-      
+
       rh   = exp((17.62 * td) / (243.12 + td) - (17.62 * ta) / (243.12 + ta)) * 100,
       es   = 0.6108 * exp(17.27 * ta / (ta + 237.3)),
       ea   = 0.6108 * exp(17.27 * td / (td + 237.3)),
       vpd  = if_else(es - ea > 0, es - ea, 0.0),
-      
+
       ssrd_MJ = cast(!!sym(VAR_SSRD), float64()) / 1e6
     ) |>
     select(all_of(c(VAR_LATIDX, VAR_LONIDX)), date, hour, ta, td, wbgt, wind, rh, vpd, ssrd_MJ) |>
     collect()
-  
+  # 
   setDT(dt)
   # enforce integer indices
   setnames(dt, c(VAR_LATIDX, VAR_LONIDX), c("lat_idx_x4","lon_idx_x4"))
@@ -252,6 +307,15 @@ read_one_year_raw <- function(yr) {
 process_year <- function(yr, weights_dt) {
   raw <- read_one_year_raw(yr)
   if (nrow(raw) == 0) return(invisible(NULL))
+  
+  
+  raw[,.N]
+  unique(raw)[,.N]
+  # 
+  # raw[date == '2022-01-01' & lon_idx_x4 == 166 & lat_idx_x4 == -108][order(hour)]
+  # raw[date == '2022-02-01' & lon_idx_x4 == 166 & lat_idx_x4 == -108][order(hour)]
+  # 
+  # 
   
   # merge weights (both schemes), compute weighted averages per village/hour
   setDT(raw)
@@ -303,6 +367,11 @@ process_year <- function(yr, weights_dt) {
   }, by = .(scheme, village, date)]
   
   dly <- merge(dly, dh, by = c("scheme","village","date"), all.x = TRUE)
+  # 
+  # dly[scheme == 'idw4' & village == 'Mandena']
+  # dly[scheme == 'idw4' & village == 'Sarahandrano']
+  # 
+  # 
   
   # Write parquet partitions (append mode)
   hourly_dir <- file.path(stream_dir, "hourly_agg")
@@ -317,11 +386,17 @@ process_year <- function(yr, weights_dt) {
   hr = hr[year == yr]
   
   
-  # write_parquet()
-  write_dataset((hr), path = hourly_dir,
-                format = "parquet", partitioning = c("scheme", "village", "year"))
-  write_dataset((dly), path = daily_dir,
-                format = "parquet", partitioning = c("scheme", "village", "year"))
+  # # write_parquet()
+  # write_dataset(hr, path = hourly_dir,
+  #               format = "parquet", partitioning = c("scheme", "village", "year"))
+  # write_dataset(dly, path = daily_dir,
+  #               format = "parquet", partitioning = c("scheme", "village", "year"))
+  # 
+  # 
+  
+  write_parquet(hr, paste0(hourly_dir, "/", yr, ".parquet"))
+  write_parquet(hr, paste0(daily_dir, "/", yr, ".parquet"))
+  
   invisible(NULL)
 
   
@@ -335,6 +410,7 @@ weights_dt <- make_weights_centers(villages)
 # print(weights_dt[scheme=="nearest1"])
 # 
 
+years_all = 1980:2024
 # 9 minutes sequential.
 jj::timed('start')
 for (yr in years_all) {
@@ -342,6 +418,19 @@ for (yr in years_all) {
   try(process_year(yr, weights_dt), silent = TRUE)
 }
 jj::timed('end')
+
+
+
+# allf = list.files('C:\\Users\\jordan\\Desktop\\madagascar\\stream', recursive=TRUE, full.names=TRUE)
+# 
+# 
+# 
+# file.remove(
+#   allf[allf %like% "2023"])
+# 
+
+
+
 
 
 
