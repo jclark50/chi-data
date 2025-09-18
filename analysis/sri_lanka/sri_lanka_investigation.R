@@ -300,8 +300,8 @@ suppressPackageStartupMessages({
 setDTthreads(8)
 
 # -------- Paths --------
-lepto_path <- "WER_leptospirosis_counts.csv"
-fig_dir <- file.path("outputs", "figures")
+lepto_path <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/WER_leptospirosis_counts.csv"
+fig_dir <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/figures/"
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 # -------- Helpers --------
@@ -419,8 +419,10 @@ if (!requireNamespace("ragg", quietly = TRUE)) {
 setDTthreads(8)
 
 # ---------------- Paths ----------------
-in_path <- "WER_leptospirosis_counts.csv"
-fig_dir <- file.path("outputs", "figures")
+# -------- Paths --------
+in_path <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/WER_leptospirosis_counts.csv"
+fig_dir <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/figures/"
+
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 # ---------------- Load & standardize ----------------
