@@ -1,4 +1,124 @@
-# Summary: Compare 2018-22 vs 3 prior 5-yr blocks for monthly climate metrics.
+# =============================================================================
+# Climate-change diagnostics: 5-year period contrasts and long-term trends
+# =============================================================================
+#
+
+
+
+
+# =============================================================================
+# Climate-change diagnostics (quick guide)
+# =============================================================================
+#
+# What this does:
+#   . Compares the most recent 5 years (2018-22) to earlier 5-year blocks
+#     (2003-07, 2008-12, 2013-17).
+#   . Looks at both temperature / humidity / radiation and WBGT-based metrics.
+#   . Checks for long-term trends (1980-2024).
+#
+# What comes out:
+#   . Tables (CSV) with average differences, effect sizes, p-values, and trends.
+#   . Figures (PNG) showing:
+#       (1) Sen's slope per month (are things warming / drying over decades?).
+#       (2) Heatmaps of recent vs baseline changes (see where months stand out).
+#       (3) Bar charts with uncertainty bars (95% CI) for VPD changes.
+#       (4) Annual time-series lines with regression slopes.
+#
+# How to read the figures:
+#   . Upward bars or red colors ??? hotter, drier, more WBGT risk.
+#   . Downward bars or blue colors ??? cooler, more humid, less WBGT risk.
+#   . If error bars cross zero ??? difference is not significant.
+#   . Long-term lines + slopes show whether trends are persistent or noisy.
+#
+# Why it matters:
+#   . Quick way to see if the "new normal" (2018-22) is really different from
+#     past blocks.
+#   . Highlights months/seasons most affected by warming or drying.
+#   . Helps tell the story: is change steady, accelerating, or seasonal?
+#
+# Outputs land under: stream_dir/figs_cc
+# =============================================================================
+
+
+
+
+# Purpose:
+# --------
+# This script analyzes daily ERA5-derived climate metrics for Mandena and
+# Sarahandrano (schemes: nearest1, idw4). It evaluates recent conditions
+# (2018-2022) against three earlier 5-year baseline blocks (2003-07, 2008-12,
+# 2013-17), and quantifies long-term linear and non-parametric trends (1980-2024).
+#
+# Data:
+# -----
+# Input parquet files: stream_dir/daily_agg/
+#   . Daily aggregated fields include: temperature (tmean_c, tmax_c, tmin_c),
+#     humidity (rh_mean, vpd_kpa), radiation (ssrd_MJ_day), and WBGT-based risk
+#     indicators (wbgt28_h, wbgt31_h, hot35_h).
+#
+# Output folders:
+#   . Tables (CSV): period contrasts and trend statistics
+#   . Figures (PNG): heatmaps, bar charts, annual time series
+#   . All written under stream_dir/figs_cc/
+#
+# Comparisons:
+# ------------
+#   . Period contrasts: mean(2018-22) minus mean(baseline period), with
+#     Welch's t-test p-values, Hedges' g effect sizes, and bootstrap CIs.
+#   . Trends: ordinary least squares (per decade), Mann-Kendall tau, and
+#     Sen's slope estimates, both annually and by calendar month.
+#
+# Tables produced:
+# ----------------
+#   . period_contrasts_monthly.csv - ?? (recent vs baselines), p-values,
+#     effect sizes, and bootstrap confidence intervals at monthly resolution.
+#   . period_contrasts_annual.csv - same, but annual means pooled across months.
+#   . trends_monthly_1980_2024.csv - Sen's slope, MK tau, and linear slope by
+#     month for 1980-2024.
+#   . trends_annual_1980_2024.csv - annual mean trends for 1980-2024.
+#
+# Figures produced (per scheme × village group):
+# ----------------------------------------------
+# (1) trend_sen_slope_by_month_<group>.png
+#     . Barplot grid: Sen's slope (per decade) by variable and month.
+#     . Interpretation: Positive bars = upward trends (warming, more risk hours).
+#       Negative bars = declines. Consistency across months indicates pervasive
+#       change; variability indicates seasonality of change.
+#
+# (2) heatmap_delta_<var>_vs_<baseline>_<group>.png
+#     . Heatmap: Mean difference (2018-22 - baseline) by month.
+#     . Interpretation: Colors show magnitude/direction of change relative to
+#       one baseline period. Rows = baseline block, cols = months.
+#       Blue = cooler/less risk; red = warmer/more risk.
+#
+# (3) bars_delta_vpd_vs_baselines_<group>.png
+#     . Grouped bars: Monthly change in VPD (2018-22 vs each baseline) with
+#       95% bootstrap confidence intervals.
+#     . Interpretation: Tall positive bars = recent drying; negative = more
+#       humid. Error bars spanning 0 imply non-significant difference.
+#
+# (4) annual_timeseries_ols_<group>.png
+#     . Grid of line plots (one per variable): annual means (1980-2024),
+#       with dashed OLS regression line.
+#     . Interpretation: Long-term trajectories of key climate metrics.
+#       Slopes highlight gradual warming, drying, or radiation shifts.
+#
+# Usage notes:
+# ------------
+#   . Adjust `scheme_sel`, `village_sel`, or `vars_state/vars_sum` to expand to
+#     additional locations or metrics.
+#   . Baseline periods must remain non-overlapping.
+#   . Bootstrapping of confidence intervals is block-based by year, preserving
+#     intra-annual structure.
+#
+# Audience:
+# ---------
+# Intended as a diagnostics tool for collaborators and publication figures.
+# Provides both scientific rigor (effect sizes, non-parametric tests) and
+# clear visualizations for heat-related climate change narratives.
+#
+# =============================================================================
+
 library(arrow)
 library(data.table)
 library(lubridate)
@@ -11,8 +131,25 @@ village_sel  <- c("Mandena","Sarahandrano")
 years_keep   <- 2003:2022                     # covers all 5-yr blocks below
 vars_keep    <- c("tmean_c","tmax_c","rh_mean","vpd_kpa",
                   "ssrd_MJ_day","wbgt28_h","wbgt31_h","hot35_h")
-out_dir      <- file.path(stream_dir, "figs_period_diffs")
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+# out_dir      <- file.path(stream_dir, "figs_period_diffs")
+# dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+# 
+# out_dir
+# 
+
+
+# ---- Paths ----
+Sys.setenv("ERA5_STREAM"  = "C:/Users/jordan/Desktop/madagascar/stream")
+Sys.setenv("figures_dir"  = "C:/Users/jordan/R_Projects/CHI-Data/analysis/madagascar/outputs/figures")
+Sys.setenv("tables_dir"   = "C:/Users/jordan/R_Projects/CHI-Data/analysis/madagascar/outputs/tables")
+
+stream_dir  <- Sys.getenv("ERA5_STREAM")
+figures_dir <- Sys.getenv("figures_dir")
+tables_dir  <- Sys.getenv("tables_dir")
+
+
+
+
 
 # 5-year periods (labels must not overlap)
 periods <- list(
@@ -142,9 +279,9 @@ res_annual <- ann[
 
 # ---------- EXPORT TABLES ----------
 fwrite(res_monthly,
-       file.path(out_dir, "period_diffs_monthly_2018-22_vs_blocks.csv"))
+       file.path(tables_dir, "period_diffs_monthly_2018-22_vs_blocks.csv"))
 fwrite(res_annual,
-       file.path(out_dir, "period_diffs_annual_2018-22_vs_blocks.csv"))
+       file.path(tables_dir, "period_diffs_annual_2018-22_vs_blocks.csv"))
 
 
 # ---------- FIGURES (BASE R ONLY) ----------
@@ -179,7 +316,7 @@ for (g in groups) {
   z <- M
   rng <- range(z, na.rm = TRUE); brks <- seq(rng[1], rng[2], length.out = 102)
   
-  fpath <- file.path(out_dir, paste0("heatmap_delta_", var_show, "_", g, ".png"))
+  fpath <- file.path(figures_dir, paste0("heatmap_delta_", var_show, "_", g, ".png"))
   png(fpath, 1400, 800, res = 150)
   par(mar = c(6, 6, 5, 6))
   image(1:12, 1:nrow(M), t(M[nrow(M):1, ]), axes = FALSE,
@@ -208,7 +345,7 @@ col_map <- setNames(c("#1B9E77", "#D95F02", "#7570B3"), baseline_levels)
 
 for (g in groups) {
   b <- bars[grp == g][order(month)]
-  fpath <- file.path(out_dir, paste0("bars_delta_", var_show2, "_", g, ".png"))
+  fpath <- file.path(figures_dir, paste0("bars_delta_", var_show2, "_", g, ".png"))
   png(fpath, 1700, 950, res = 150)
   par(mar = c(6, 6, 5, 1))
   # matrix of deltas: rows=baselines, cols=months
@@ -260,7 +397,7 @@ library(trend)
 
 # ---------- CONFIG ----------
 daily_dir   <- file.path(stream_dir, "daily_agg")
-out_dir     <- file.path(stream_dir, "figs_cc"); dir.create(out_dir, TRUE, FALSE)
+# out_dir     <- file.path(stream_dir, "figs_cc"); dir.create(out_dir, TRUE, FALSE)
 
 # variables available in daily_agg; adjust if you've added more
 vars_state  <- c("tmean_c","tmax_c","tmin_c","rh_mean","vpd_kpa")  # averaged within month
@@ -372,7 +509,7 @@ res_monthly <- mon[
     }))
   }, by = .(scheme, village, month, month_lab)
 ]
-fwrite(res_monthly, file.path(out_dir, "period_contrasts_monthly.csv"))
+fwrite(res_monthly, file.path(tables_dir, "period_contrasts_monthly.csv"))
 
 # Annual contrasts (pooled months per year, then compare)
 res_annual <- ann[
@@ -382,7 +519,7 @@ res_annual <- ann[
     }))
   }, by = .(scheme, village)
 ]
-fwrite(res_annual, file.path(out_dir, "period_contrasts_annual.csv"))
+fwrite(res_annual, file.path(tables_dir, "period_contrasts_annual.csv"))
 
 # ---------- LONG-TERM TRENDS (1980-2024) ----------
 # Monthly trend per month (separate slope by calendar month)
@@ -394,7 +531,7 @@ trend_monthly <- mon[
     }))
   }, by = .(scheme, village, month, month_lab)
 ]
-fwrite(trend_monthly, file.path(out_dir, "trends_monthly_1980_2024.csv"))
+fwrite(trend_monthly, file.path(tables_dir, "trends_monthly_1980_2024.csv"))
 
 # Annual trend (yearly means)
 trend_annual <- ann[
@@ -405,7 +542,7 @@ trend_annual <- ann[
     }))
   }, by = .(scheme, village)
 ]
-fwrite(trend_annual, file.path(out_dir, "trends_annual_1980_2024.csv"))
+fwrite(trend_annual, file.path(tables_dir, "trends_annual_1980_2024.csv"))
 
 
 # ---------- FIGURES (BASE R ONLY) ----------
@@ -424,30 +561,49 @@ tm <- copy(trend_monthly)
 tm[, grp := paste(scheme, village, sep = " . ")]
 groups <- unique(tm$grp)
 var_levels <- vars_all
+# 
+# for (g in groups) {
+#   d <- tm[grp == g]
+#   # Build matrix: rows = variables, cols = months
+#   M <- sapply(1:12, function(m) {
+#     x <- d[month == m]
+#     vals <- setNames(x$sens_slope_decade, x$variable)[var_levels]
+#     vals
+#   })
+#   rownames(M) <- var_levels
+#   
+#   # Skip if everything is NA
+#   if (all(!is.finite(M))) {
+#     message("Skipping group ", g, ": all slopes NA")
+#     next
+#   }
+#   
+#   fpath <- file.path(figures_dir, paste0("trend_sen_slope_by_month_", g, ".png"))
+#   png(fpath, 1800, 950, res = 150)
+#   par(mar = c(6, 6, 5, 1))
+#   
+#   mids <- barplot(M,
+#                   beside = TRUE,
+#                   col = rep_len(c("#1B9E77","#D95F02","#7570B3","#757575",
+#                                   "#A6CEE3","#FB9A99","#CAB2D6","#B2DF8A"),
+#                                 nrow(M)),
+#                   border = "gray40",
+#                   names.arg = month.abb, cex.names = 1.0,
+#                   main = paste0("Long-term trend by month (Sen's slope per decade)\n", g),
+#                   ylab = "Slope / decade")
+#   abline(h = 0, col = "gray40", lty = 3)
+#   draw_hgrid(range(M, na.rm = TRUE))
+#   
+#   legend("topleft", bty = "n",
+#          fill = rep_len(c("#1B9E77","#D95F02","#7570B3","#757575",
+#                           "#A6CEE3","#FB9A99","#CAB2D6","#B2DF8A"),
+#                         nrow(M)),
+#          legend = rownames(M))
+#   
+#   dev.off(); open_file(fpath)
+# }
+# 
 
-for (g in groups) {
-  d <- tm[grp == g]
-  # matrix rows=variables, cols=months (sens_slope_decade)
-  M <- sapply(1:12, function(m) {
-    x <- d[month == m]
-    setNames(x$sens_slope_decade, x$variable)[var_levels]
-  })
-  rownames(M) <- var_levels
-  fpath <- file.path(out_dir, paste0("trend_sen_slope_by_month_", g, ".png"))
-  png(fpath, 1800, 950, res = 150)
-  par(mar = c(6, 6, 5, 1))
-  mids <- barplot(M, beside = TRUE, col = rep_len(c("#1B9E77","#D95F02","#7570B3","#757575",
-                                                    "#A6CEE3","#FB9A99","#CAB2D6","#B2DF8A"),
-                                                  nrow(M)),
-                  border = "gray40",
-                  names.arg = month.abb, cex.names = 1.0,
-                  main = paste0("Long-term trend by month (Sen's slope per decade)\n", g),
-                  ylab = "Slope / decade")
-  abline(h = 0, col = "gray40", lty = 3); draw_hgrid(range(M, na.rm = TRUE))
-  legend("topleft", bty = "n", fill = unique(col2rgb(colnames(M), alpha = FALSE)[1,]),
-         legend = rownames(M))
-  dev.off(); open_file(fpath)
-}
 
 # 2) Heatmap: ??(2018-22 minus baseline) for a chosen baseline & variable (per group)
 show_baseline <- baseline_names[1]
@@ -461,13 +617,19 @@ for (g in groups) {
   h <- hm[grp == g]
   z <- rep(NA_real_, 12); z[h$month] <- h$delta
   rng <- range(z, na.rm = TRUE); brks <- seq(rng[1], rng[2], length.out = 102)
-  fpath <- file.path(out_dir, paste0("heatmap_delta_", show_var, "_vs_", show_baseline, "_", g, ".png"))
+  fpath <- file.path(figures_dir, paste0("heatmap_delta_", show_var, "_vs_", show_baseline, "_", g, ".png"))
   png(fpath, 1400, 500, res = 150)
   par(mar = c(6, 6, 5, 6))
-  image(1:12, 1, matrix(z, nrow = 1), axes = FALSE,
-        xlab = "Month", ylab = "", main = paste0("?? ", show_var,
-                                                 " (2018-22 - ", show_baseline, ")\n", g),
+  # image(1:12, 1, matrix(z, nrow = 1), axes = FALSE,
+  #       xlab = "Month", ylab = "", main = paste0("?? ", show_var,
+  #                                                " (2018-22 - ", show_baseline, ")\n", g),
+  #       col = cols, breaks = brks, useRaster = TRUE)
+  
+  image(1:12, 1, matrix(z, ncol = 1), axes = FALSE,
+        xlab = "Month", ylab = "", 
+        main = paste0("?? ", show_var, " (2018-22 - ", show_baseline, ")\n", g),
         col = cols, breaks = brks, useRaster = TRUE)
+  
   axis(1, at = 1:12, labels = month.abb)
   mtext("?? (units)", side = 4, line = 3)
   # color legend
@@ -486,7 +648,7 @@ col_map <- setNames(c("#1B9E77", "#D95F02", "#7570B3"), baseline_levels)
 
 for (g in groups) {
   b <- bars[grp == g][order(month)]
-  fpath <- file.path(out_dir, paste0("bars_delta_vpd_vs_baselines_", g, ".png"))
+  fpath <- file.path(figures_dir, paste0("bars_delta_vpd_vs_baselines_", g, ".png"))
   png(fpath, 1700, 950, res = 150)
   par(mar = c(6, 6, 5, 1))
   # matrix of deltas: rows=baselines, cols=months
@@ -522,7 +684,7 @@ groups <- unique(ann_long$grp)
 
 for (g in groups) {
   d <- ann_long[grp == g]
-  fpath <- file.path(out_dir, paste0("annual_timeseries_ols_", g, ".png"))
+  fpath <- file.path(figures_dir, paste0("annual_timeseries_ols_", g, ".png"))
   png(fpath, 1800, 1200, res = 150)
   par(mfrow = c(4, 2), mar = c(4.5, 5.0, 3.5, 1.5))
   for (v in vars_all) {
