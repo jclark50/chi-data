@@ -36,9 +36,7 @@ CHI-Data/
 │
 ├── outputs/           # (Optional) Shared space for derived datasets or figures
 │
-├── CHI-Data.Rproj     # RStudio project file
 ├── README.md          # This file
-└── DESCRIPTION.txt    # High-level project description / metadata
 
 ````
 
