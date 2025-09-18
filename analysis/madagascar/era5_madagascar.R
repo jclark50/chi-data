@@ -38,8 +38,11 @@ Sys.setenv("ERA5_STREAM" = "C:/Users/jordan/Desktop/madagascar/stream")
 out_root <- Sys.getenv("ERA5_OUT", unset = "C:/data/chi_outputs/madagascar")
 dir.create(out_root, recursive = TRUE, showWarnings = FALSE)
 
+
 stream_dir <- Sys.getenv("ERA5_STREAM", unset = file.path(out_root, "streamed"))
 dir.create(stream_dir, recursive = TRUE, showWarnings = FALSE)
+
+
 
 
 
@@ -307,16 +310,6 @@ read_one_year_raw <- function(yr) {
 process_year <- function(yr, weights_dt) {
   raw <- read_one_year_raw(yr)
   if (nrow(raw) == 0) return(invisible(NULL))
-  
-  
-  raw[,.N]
-  unique(raw)[,.N]
-  # 
-  # raw[date == '2022-01-01' & lon_idx_x4 == 166 & lat_idx_x4 == -108][order(hour)]
-  # raw[date == '2022-02-01' & lon_idx_x4 == 166 & lat_idx_x4 == -108][order(hour)]
-  # 
-  # 
-  
   # merge weights (both schemes), compute weighted averages per village/hour
   setDT(raw)
   raw <- merge(raw, weights_dt,
@@ -333,6 +326,9 @@ process_year <- function(yr, weights_dt) {
     ssrd_MJ = sum(ssrd_MJ * weight, na.rm = TRUE) / sum(weight)
   ), by = .(scheme, village, date, hour)]
   
+  
+  midpoint95 = as.numeric(quantile(hr$wbgt, 0.95))
+
   # Daily aggregates (sums/means)
   dly <- hr[, .(
     tmean_c     = mean(ta, na.rm = TRUE),
@@ -347,9 +343,9 @@ process_year <- function(yr, weights_dt) {
     hot35_h     = sum(ta   >= 35, na.rm = TRUE),
     
     # Workability windows
-    work_day_pct   = mean(workability(wbgt)[hour %in% 9:16],  na.rm = TRUE),
-    work_night_pct = mean(workability(wbgt)[hour %in% c(22:23,0:6)], na.rm = TRUE),
-    work_all_pct   = mean(workability(wbgt), na.rm = TRUE)
+    work_day_pct   = mean(workability(wbgt, midpoint = midpoint95)[hour %in% 9:16],  na.rm = TRUE),
+    work_night_pct = mean(workability(wbgt, midpoint = midpoint95)[hour %in% c(22:23,0:6)], na.rm = TRUE),
+    work_all_pct   = mean(workability(wbgt, midpoint = midpoint95), na.rm = TRUE)
   ), by = .(scheme, village, date)]
   
   # Disease "risk hours" per day using hours logic (tweak as needed)
@@ -367,12 +363,7 @@ process_year <- function(yr, weights_dt) {
   }, by = .(scheme, village, date)]
   
   dly <- merge(dly, dh, by = c("scheme","village","date"), all.x = TRUE)
-  # 
-  # dly[scheme == 'idw4' & village == 'Mandena']
-  # dly[scheme == 'idw4' & village == 'Sarahandrano']
-  # 
-  # 
-  
+
   # Write parquet partitions (append mode)
   hourly_dir <- file.path(stream_dir, "hourly_agg")
   daily_dir  <- file.path(stream_dir, "daily_agg")
@@ -384,16 +375,7 @@ process_year <- function(yr, weights_dt) {
   
   dly = dly[year == yr]
   hr = hr[year == yr]
-  
-  
-  # # write_parquet()
-  # write_dataset(hr, path = hourly_dir,
-  #               format = "parquet", partitioning = c("scheme", "village", "year"))
-  # write_dataset(dly, path = daily_dir,
-  #               format = "parquet", partitioning = c("scheme", "village", "year"))
-  # 
-  # 
-  
+
   write_parquet(hr, paste0(hourly_dir, "/", yr, ".parquet"))
   write_parquet(hr, paste0(daily_dir, "/", yr, ".parquet"))
   
@@ -401,6 +383,180 @@ process_year <- function(yr, weights_dt) {
 
   
 }
+
+
+# Summary: Process one year ??? village-weighted hourly + enriched daily metrics, then write parquet.
+process_year <- function(yr, weights_dt) {
+  # --- load hourly grid, bail if nothing for this year ---
+  raw <- read_one_year_raw(yr)
+  if (nrow(raw) == 0) return(invisible(NULL))
+  
+  # --- merge 3x3 weights (both schemes) and compute weighted hourly by village ---
+  setDT(raw)
+  raw <- merge(raw, weights_dt,
+               by = c("lat_idx_x4","lon_idx_x4"), allow.cartesian = TRUE)
+  
+  hr <- raw[, .(
+    ta      = sum(ta      * weight, na.rm = TRUE) / sum(weight),
+    td      = sum(td      * weight, na.rm = TRUE) / sum(weight),
+    wbgt    = sum(wbgt    * weight, na.rm = TRUE) / sum(weight),
+    wind    = sum(wind    * weight, na.rm = TRUE) / sum(weight),
+    rh      = sum(rh      * weight, na.rm = TRUE) / sum(weight),
+    vpd     = sum(vpd     * weight, na.rm = TRUE) / sum(weight),
+    ssrd_MJ = sum(ssrd_MJ * weight, na.rm = TRUE) / sum(weight)
+  ), by = .(scheme, village, date, hour)]
+  
+  # --- workability helpers (embedded to keep function self-contained) ---
+  wbgt_band <- function(x) data.table::fifelse(x < 28, "safe",
+                                               data.table::fifelse(x < 31, "caution", "high"))
+  deg_hours_over <- function(x, t) pmax(x - t, 0)
+  max_runlen <- function(x) { if (!any(x)) 0L else max(with(rle(x), lengths[values])) }
+  count_runs_ge <- function(x, k = 2L) {
+    if (!any(x)) return(0L)
+    rl <- rle(x); sum(rl$values & rl$lengths >= k)
+  }
+  work_fraction <- function(wbgt_c, workload = c("light","moderate","heavy")) {
+    wl <- match.arg(workload)
+    if (wl == "light") {
+      data.table::fifelse(wbgt_c < 30, 1.00,
+                          data.table::fifelse(wbgt_c < 31.5, 0.75,
+                                              data.table::fifelse(wbgt_c < 33.0, 0.50,
+                                                                  data.table::fifelse(wbgt_c < 34.5, 0.25, 0.00))))
+    } else if (wl == "moderate") {
+      data.table::fifelse(wbgt_c < 28, 1.00,
+                          data.table::fifelse(wbgt_c < 29.5, 0.75,
+                                              data.table::fifelse(wbgt_c < 31.0, 0.50,
+                                                                  data.table::fifelse(wbgt_c < 32.0, 0.25, 0.00))))
+    } else {
+      data.table::fifelse(wbgt_c < 26, 1.00,
+                          data.table::fifelse(wbgt_c < 27.5, 0.75,
+                                              data.table::fifelse(wbgt_c < 29.0, 0.50,
+                                                                  data.table::fifelse(wbgt_c < 30.0, 0.25, 0.00))))
+    }
+  }
+  
+  H_DAY   <- 9:16
+  H_MORN  <- 6:10
+  H_MID   <- 10:14
+  H_AFTER <- 14:18
+  H_NIGHT <- c(22:23, 0:6)
+  
+  # --- choose workability midpoint from this year's distribution (95th %ile WBGT) ---
+  midpoint95 <- as.numeric(stats::quantile(hr$wbgt, 0.95, na.rm = TRUE))
+  
+  # --- enrich hourly with workability-derived columns ---
+  hr[, `:=`(
+    work_pct = workability(wbgt, midpoint = midpoint95),      # 0-100
+    band     = wbgt_band(wbgt),
+    loss_pct = 100 - workability(wbgt, midpoint = midpoint95),
+    dh_28    = deg_hours_over(wbgt, 28),
+    dh_31    = deg_hours_over(wbgt, 31),
+    wf_light    = work_fraction(wbgt, "light"),
+    wf_moderate = work_fraction(wbgt, "moderate"),
+    wf_heavy    = work_fraction(wbgt, "heavy")
+  )]
+  
+  # --- disease rule-of-thumb flags (hourly) ---
+  disease_hourly <- function(ta, vpd, rh) {
+    list(
+      palm = as.integer(ta >= 20 & ta <= 30 & (vpd <= 0.7 | rh >= 95)),
+      anth = as.integer(ta >= 22 & ta <= 32 & (vpd <= 0.9 | rh >= 93))
+    )
+  }
+  
+  # --- daily baseline meteorology (means/sums) ---
+  dly_base <- hr[, .(
+    tmean_c     = mean(ta, na.rm = TRUE),
+    tmax_c      = max(ta,  na.rm = TRUE),
+    tmin_c      = min(ta,  na.rm = TRUE),
+    dtr_c       = max(ta, na.rm = TRUE) - min(ta, na.rm = TRUE),
+    rh_mean     = mean(rh, na.rm = TRUE),
+    vpd_kpa     = mean(vpd, na.rm = TRUE),
+    ssrd_MJ_day = sum(ssrd_MJ, na.rm = TRUE),
+    wbgt28_h    = sum(wbgt >= 28, na.rm = TRUE),
+    wbgt31_h    = sum(wbgt >= 31, na.rm = TRUE),
+    hot35_h     = sum(ta   >= 35, na.rm = TRUE),
+    # simple workability windows (kept for continuity)
+    work_day_pct   = mean(workability(wbgt, midpoint = midpoint95)[hour %in% H_DAY],   na.rm = TRUE),
+    work_night_pct = mean(workability(wbgt, midpoint = midpoint95)[hour %in% H_NIGHT], na.rm = TRUE),
+    work_all_pct   = mean(workability(wbgt, midpoint = midpoint95), na.rm = TRUE)
+  ), by = .(scheme, village, date)]
+  
+  # --- daily enriched workability metrics (distribution, thresholds, schedulability, shifts) ---
+  dly_work <- hr[, .(
+    # distributional shape
+    work_p05 = stats::quantile(work_pct, 0.05, na.rm = TRUE),
+    work_p25 = stats::quantile(work_pct, 0.25, na.rm = TRUE),
+    work_p50 = stats::quantile(work_pct, 0.50, na.rm = TRUE),
+    work_p75 = stats::quantile(work_pct, 0.75, na.rm = TRUE),
+    work_p95 = stats::quantile(work_pct, 0.95, na.rm = TRUE),
+    work_iqr = stats::IQR(work_pct, na.rm = TRUE),
+    # expected shortfall (worst 20% of hours)
+    work_es20 = {
+      n <- sum(!is.na(work_pct)); k <- ceiling(0.20 * n)
+      if (k == 0) NA_real_ else mean(sort(work_pct, na.last = NA)[seq_len(k)], na.rm = TRUE)
+    },
+    # thresholds/time + dose
+    hours_safe    = sum(band == "safe",    na.rm = TRUE),
+    hours_caution = sum(band == "caution", na.rm = TRUE),
+    hours_high    = sum(band == "high",    na.rm = TRUE),
+    dh28_sum      = sum(dh_28, na.rm = TRUE),
+    dh31_sum      = sum(dh_31, na.rm = TRUE),
+    # schedulability targets (???70% / ???80%)
+    max_block70_h = max_runlen(work_pct >= 70),
+    max_block80_h = max_runlen(work_pct >= 80),
+    n_blocks2h70  = count_runs_ge(work_pct >= 70, k = 2),
+    n_blocks4h70  = count_runs_ge(work_pct >= 70, k = 4),
+    # shift-aware windows
+    work_morn = mean(work_pct[hour %in% H_MORN],  na.rm = TRUE),
+    work_mid  = mean(work_pct[hour %in% H_MID],   na.rm = TRUE),
+    work_aft  = mean(work_pct[hour %in% H_AFTER], na.rm = TRUE),
+    work_nite = mean(work_pct[hour %in% H_NIGHT], na.rm = TRUE),
+    # earliest feasible 4-h start for ???70% (NA if none)
+    start4h70 = {
+      ok <- rep(FALSE, 24L)
+      for (h in 0:20) ok[h + 1L] <- all(work_pct[hour %in% h:(h + 3L)] >= 70, na.rm = TRUE)
+      if (any(ok)) which(ok)[1] - 1L else NA_integer_
+    },
+    # work:rest effective minutes
+    eff_work_min_light    = 60 * sum(wf_light,    na.rm = TRUE),
+    eff_work_min_moderate = 60 * sum(wf_moderate, na.rm = TRUE),
+    eff_work_min_heavy    = 60 * sum(wf_heavy,    na.rm = TRUE),
+    # risk-weighted "loss area"
+    loss_area = sum(loss_pct, na.rm = TRUE)
+  ), by = .(scheme, village, date)]
+  
+  # --- disease day-level sums from hourly flags ---
+  dh <- hr[, {
+    f <- disease_hourly(ta, vpd, rh)
+    .(palm_hours = sum(f$palm, na.rm = TRUE),
+      anth_hours = sum(f$anth, na.rm = TRUE))
+  }, by = .(scheme, village, date)]
+  
+  # --- combine daily pieces ---
+  dly <- Reduce(function(x, y) merge(x, y, by = c("scheme","village","date"), all.x = TRUE),
+                list(dly_base, dly_work, dh))
+  
+  # --- ensure year column and limit to 'yr' (defensive) ---
+  dly[, year := lubridate::year(date)]
+  hr[,  year := lubridate::year(date)]
+  dly <- dly[year == yr]
+  hr  <- hr[year == yr]
+  
+  # --- write parquet files (one per year), create dirs if missing ---
+  hourly_dir <- file.path(stream_dir, "hourly_agg")
+  daily_dir  <- file.path(stream_dir, "daily_agg")
+  dir.create(hourly_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(daily_dir,  recursive = TRUE, showWarnings = FALSE)
+  
+  arrow::write_parquet(hr,  file.path(hourly_dir, sprintf("%d.parquet", yr)))
+  arrow::write_parquet(dly, file.path(daily_dir,  sprintf("%d.parquet", yr)))
+  
+  invisible(NULL)
+}
+
+
+# list.files("C:/Users/jordan/R_Projects/CHI-Data", recursive=TRUE)
 
 # ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 # 5) RUN: mapping + per-year streaming
@@ -410,7 +566,7 @@ weights_dt <- make_weights_centers(villages)
 # print(weights_dt[scheme=="nearest1"])
 # 
 
-years_all = 1980:2024
+years_all = 1980:2021
 # 9 minutes sequential.
 jj::timed('start')
 for (yr in years_all) {
