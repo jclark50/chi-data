@@ -5,16 +5,17 @@ suppressPackageStartupMessages({
   library(data.table)
   library(stringr)
   library(pdftools)
+  library(xml2)
+  library(rvest)
 })
+
 suppressPackageStartupMessages({
   library(data.table)
   library(stringr)
-  library(lubridate)
+  library(httr)
+  library(pdftools)
 })
 
-library(xml2)
-
-library(rvest)
 
 parse_issue_from_filename_v34plus <- function(u) {
   f <- basename(u)
@@ -56,14 +57,8 @@ parse_issue_from_filename_v34plus <- function(u) {
 urls <- c("https://www.epid.gov.lk/storage/post/pdfs/en_68aca1e16f16d_Vol_52_no_23-english.pdf")
 parse_issue_from_filename_v34plus(urls)
 
-
-
-
 # read_html
-
 wer_url= "https://www.epid.gov.lk/weekly-epidemiological-report"
-
-
 
 coalesce1 <- function(a, b) ifelse(!is.na(a), a, b)
 
@@ -75,26 +70,17 @@ pdfs     <- ifelse(startsWith(pdfs, "http"), pdfs, paste0(wer_base, pdfs))
 pdfs = pdfs[2:length(pdfs)]
 
 
-# head(pdfs)
-# pdfs = pdfs[1]
-
-
-
-
 # Build initial index from filenames
 idx_fn <- rbindlist(lapply(pdfs, parse_issue_from_filename_v34plus), fill = TRUE)
 
-idx_path  <- "sri_lanka_WER_index.csv"
-write.csv(allresults, idx_path)
+idx_path  <- "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/sri_lanka_WER_index.csv"
+dir.create(dirname(idx_path), recursive=TRUE)
 
+write.csv(idx_fn, idx_path)
 
-
-suppressPackageStartupMessages({
-  library(data.table)
-  library(stringr)
-  library(httr)
-  library(pdftools)
-})
+######################################################################
+######################################################################
+######################################################################
 
 # Canonical district names & common variants (older volumes)
 DIST_CANON <- c("Colombo","Gampaha","Kalutara","Kandy","Matale","Nuwara Eliya",
@@ -279,18 +265,13 @@ for (atp in 1:nrow(idx)){
 
 allresults = rbindlist(allresults, fill=TRUE)
 
-
-allresults[district == 'Colombo']
-
-allresults2 = allresults[,c("district","cases","date_end")]
-
-allresults2[district == 'Colombo']
-
-plot(allresults2[district == 'Colombo']$cases, type = 'l')
-
-
-write.csv(allresults, 'xxWER_leptospirosis_counts.csv')
-
+# 
+# allresults[district == 'Colombo']
+# allresults2 = allresults[,c("district","cases","date_end")]
+# allresults2[district == 'Colombo']
+# plot(allresults2[district == 'Colombo']$cases, type = 'l')
+# write.csv(allresults, 'xxWER_leptospirosis_counts.csv')
+write.csv(allresults, "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/WER_leptospirosis_counts.csv")
 
 
 # 
