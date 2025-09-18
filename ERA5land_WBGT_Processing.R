@@ -10,7 +10,25 @@
 #   variables, and computing the Wet Bulb Globe Temperature (WBGT) using a combination of R and optimized
 #   C++ routines. Processed data is saved as Parquet files for further analysis.
 #
-# Date]: Initial version.
+#   NOTE:
+#     Downstream derivations for county-level or census tract-level metrics are performed in separate 
+#     scripts:
+#       * era5-hourly-daily-censustract-20250306.R
+#       * era5-hourly-daily-counties-20250224-V3.R
+#
+# Requirements:
+#   - R (version 4.x or later recommended)
+#   - Required R packages: data.table, wbgt, jj, arrow, ncdf4, units, Rcpp, RcppParallel, foreach, doParallel
+#   - External dependency: C++ source file ("wbgt_cpp.cpp") located at the specified path.
+#   - System: Windows with WSL configured for GRIB-to-NetCDF conversion.
+#
+# Usage:
+#   1. Configure input parameters (e.g., file paths, year/month ranges, number of threads).
+#   2. Run this script to process ERA5 data and compute WBGT.
+#   3. Processed data is saved as Parquet files for downstream analysis.
+#
+# Revision History:
+#   - [Insert Creation Date]: Initial version.
 #   - March 09, 2025: Updated for improved error handling, unit conversion, and parallel processing.
 #
 ####################################################################################################
@@ -25,7 +43,6 @@ library(furrr)
 library(arrow)
 library(foreach)
 library(doParallel)
-library(units)
 
 # ================================================
 # =            SET UP PARAMETERS                 =
@@ -80,6 +97,7 @@ era5_grib_process <- function(grib_file, year, month, redo = FALSE,
                               log_file = "C:/Users/jordan/Desktop/progresstracker.txt",
                               numOfThreads_forWBGTcalc = 7,
                               era5type = 'era5land',
+                              era5vars = NULL,
                               area_str = "N21W128S52E66") {
   
   jj::timed('start')
@@ -129,11 +147,12 @@ era5_grib_process <- function(grib_file, year, month, redo = FALSE,
   tempDir <- dirname(grib_file)
   
   wbgtFileName <- file.path(processed_out_dir, year, charnum(month),
-                            paste(j.strsplit(basename(grib_file), "_allvars", 1),
-                                  paste0("_", area_str, "_wbgt.Rds")))
+                            paste0(j.strsplit(basename(grib_file), "_allvars", 1),
+                                   paste0("_", area_str, "_wbgt.Rds")))
   parquet_dir <- file.path(dirname(wbgtFileName), "parquet")
   parquet_file <- file.path(parquet_dir, gsub(".Rds", "_gridded_processed_wbgtcpp.parquet", basename(wbgtFileName)))
   
+  # file.exists(parquet_file)
   ###############################################
   ### ======================================== ###
   ###      CHECK FOR EXISTING PARQUET FILE     ###
@@ -288,10 +307,14 @@ era5_grib_process <- function(grib_file, year, month, redo = FALSE,
   ###    TEMPERATURE CONVERSION & CLEANING     ###
   ### ======================================== ###
   ###############################################
-  units(clim_dat$ta) <- "degK"
-  units(clim_dat$td) <- "degK"
-  clim_dat[, ta := set_units(ta, "degC")]
-  clim_dat[, td := set_units(td, "degC")]
+  
+  unit(clim_dat$ta) <- 'degK|degC'
+  unit(clim_dat$td) <- 'degK|degC'
+  
+  # units(clim_dat$ta) <- "degK"
+  # units(clim_dat$td) <- "degK"
+  # clim_dat[, ta := set_units(ta, "degC")]
+  # clim_dat[, td := set_units(td, "degC")]
   clim_dat <- clim_dat[!is.na(ta)]
   clim_dat[, rh := round(jj::calcRH(ta, td, inputunits = "degC", ignoreattr = TRUE), 1)]
   clim_dat[, pres := 1010]
@@ -319,10 +342,12 @@ era5_grib_process <- function(grib_file, year, month, redo = FALSE,
   ###############################################
   # units::install_unit("mph", "0.44704 m/s")
   clim_dat[!is.na(wind10m), wind2m := logwind(ssrd, wind10m, "rural")]
-  units(clim_dat$wind10m) <- "m/s"
-  units(clim_dat$wind2m) <- "m/s"
-  windSpeedThreshold <- set_units(1, "mi/h") # 1.5 mph
-  windSpeedThreshold = set_units(windSpeedThreshold, "m/s")
+  unit(clim_dat$wind10m) <- "m/s"
+  unit(clim_dat$wind2m) <- "m/s"
+  
+  # windSpeedThreshold <- set_units(1, "mi/h") # 1.5 mph
+  # windSpeedThreshold = set_units(windSpeedThreshold, "m/s")
+  windSpeedThreshold = 0.44704
   # windSpeedThreshold <- set_units(0.67056, "m/s") # 1.5 mph
   # windSpeedThreshold <- set_units(0.67056, "m/s") # 1.5 mph
   clim_dat[wind2m < windSpeedThreshold, wind2m := windSpeedThreshold]
@@ -339,138 +364,151 @@ era5_grib_process <- function(grib_file, year, month, redo = FALSE,
   ### ======================================== ###
   ###      WBGT CALCULATION & C++ INTEGRATION    ###
   ### ======================================== ###
-  ###############################################
+  # ###############################################
   log_progress(log_file, year, month, "calc_wbgt", "started", as.character(Sys.time()))
-  options(warn = -1)
-  Rcpp::sourceCpp(era5_wbgt_cppfile)
-  options(warn = 0)
-  
-  calc_wbgt_cpp <- function(validTime, 
-                            # year = NULL, month = NULL, day = NULL, hour = NULL, minute = NULL,
-                            lat, lon, solar, pres, Tair, relhum, 
-                            speed, zspeed, dT, urban, calcTpsy = FALSE,
-                            convergencethreshold = 0.02, outputUnits = "C",
-                            surface_type = NULL, surface_properties = NULL,
-                            numOfThreads = parallel::detectCores() - 1) {
-    
-    library(RcppParallel)
-    RcppParallel::setThreadOptions(numThreads  = numOfThreads)
-    
-    # if (!is.null(surface_type)){
-    #   EMIS_SFC <- surface_properties[surface == surface_type]$emissivity
-    #   ALB_SFC <- surface_properties[surface == surface_type]$albedo
-    # } else {
-    # 
-    # EMIS_SFC <- 0.999
-    # ALB_SFC <- 0.45
-    # }
-    year = lyear(validTime)
-    month = lmonth(validTime)
-    day = lday(validTime)
-    hour = lhour(validTime)         # extract hour from your datatable
-    minute = lminute(validTime)     # extract minute from your datatable
-    # if (is.null(year)){
-    #   year = lyear(validTime)
-    # }
-    # if (is.null(month)){
-    #   month = lmonth(validTime)
-    # }
-    # if (is.null(month)){
-    #   month = lmonth(validTime)
-    # }
-    # if (is.null(minute)){
-    #   minute = lminute(validTime)
-    # }
-    # 
-    ############################################################
-    gmt = 0
-    avg = 1
-    # Convert time to GMT and center in avg period
-    hour_gmt <- hour - gmt + (minute - 0.5 * avg) / 60
-    dday <- day + hour_gmt / 24
-    
-    ############################################################
-    
-    # solarParams = calc_solar_parameters_cpp(year, month, dday, lat, lon, solar)
-    solarParams = calc_solar_parameters_cpp2(year, month, dday, lat, lon, solar)
-    
-    rm(list = c('year', 'month', 'day', 'hour', 'minute','hour_gmt','dday'))
-    gc()
-    # solarposition_spa_cpp(Rcpp::NumericVector year, Rcpp::NumericVector month, Rcpp::NumericVector day, 
-    #                      Rcpp::NumericVector latitude, Rcpp::NumericVector longitude)
-    # solarParams2 = solarposition_spa_cpp(year, month, dday, lat, lon)
-    # cza <- solarParams$cza
-    # fdir <- solarParams$fdir
-    # solar <- solarParams$solar
-    
-    ###############################
-    ###############################
-    # Unit conversions
-    # Tair_og = Tair
-    Tair <- Tair + 273.15       # Convert temperature to Kelvin
-    relhum <- 0.01 * relhum           # Convert relative humidity to fraction
-    ###############################
-    ###############################
-    
-    # Calculate temperatures
-    # Tg <- Tglobe(Tair_K, rh, pres, speed, solar, fdir, cza, EMIS_SFC, ALB_SFC)
-    # Tg_cpp = Tglobe_cpp(Tair_K, rh, pres, speed, solar, fdir, cza)
-    cpp_tg = Tglobe_cpp_vec(Tair, relhum, pres, speed, solarParams$solar, solarParams$fdir, solarParams$cza)
-    
-    # cat("here5\n")
-    
-    # data.table(og = round(Tg_og, 1), new = round(Tg, 1), new_cpp = round(Tg_cpp, 1))
-    # Tnwb_cpp = Twb_cpp_vec(Tair_K, rh, pres, speed, solar, fdir, cza, 1)
-    # Tnwb_cpp = Twb_cpp(Tair_K, rh, pres, speed, solar, fdir, cza, 1)
-    cpp_nwb = Twb_cpp_vec(Tair, relhum, pres, speed, solarParams$solar, solarParams$fdir, solarParams$cza, 1)
-    
-    if (calcTpsy) {
-      Tpsy <- Twb(Tair, relhum, pres, speed, solarParams$solar, solarParams$fdir, solarParams$cza, 0)
-    }
-    
-    cpp_Twbg <- 0.1 * (Tair-273.15) + 0.2 * cpp_tg + 0.7 * cpp_nwb
-    
-    # Convert to Fahrenheit if needed
-    if (outputUnits == "F") {
-      # Tg <- Tg * 9/5 + 32
-      cpp_tg <- cpp_tg * 9/5 + 32
-      # Tnwb <- Tnwb * 9/5 + 32
-      cpp_nwb <- cpp_nwb * 9/5 + 32
-      # Tair <- Tair * 9/5 + 32
-      # Twbg <- Twbg * 9/5 + 32
-      cpp_Twbg <- cpp_Twbg * 9/5 + 32
-      
-      cpp_tg = round(cpp_tg, 1)
-      # Tg_cpp = round(Tg_cpp, 1)
-      # Tnwb = round(Tnwb, 1)
-      cpp_nwb = round(cpp_nwb, 1)
-      # Twbg = round(Twbg, 1)
-      cpp_Twbg = round(cpp_Twbg, 1)
-      
-      
-      if (calcTpsy && !is.null(Tpsy)) {
-        Tpsy <- Tpsy * 9/5 + 32
-      }
-    }
-    
-    # Prepare the result
-    if (calcTpsy) {
-      return(data.table(Twbg = cpp_Twbg, Tnwb = cpp_nwb, Tg = cpp_tg, Tpsy = Tpsy))
-    } else {
-      return(data.table(Twbg = cpp_Twbg, Tnwb = cpp_nwb, Tg = cpp_tg))
-    }
-  }
-  
-  ###############################################
-  ### ======================================== ###
-  ###       APPLY WBGT CALCULATION TO DATA     ###
-  ### ======================================== ###
-  ###############################################
-  clim_dat[, ta := as.numeric(ta)]
-  clim_dat[, wind2m := as.numeric(wind2m)]
-  
-  clim_dat[, c("wbgt_cpp", "nwb_cpp", "tg_cpp") := {
-    wbgt_result <- calc_wbgt_cpp(
+  # options(warn = -1)
+  # Rcpp::sourceCpp(era5_wbgt_cppfile)
+  # options(warn = 0)
+  # 
+  # calc_wbgt_cpp <- function(validTime, 
+  #                           # year = NULL, month = NULL, day = NULL, hour = NULL, minute = NULL,
+  #                           lat, lon, solar, pres, Tair, relhum, 
+  #                           speed, zspeed, dT, urban, calcTpsy = FALSE,
+  #                           convergencethreshold = 0.02, outputUnits = "C",
+  #                           surface_type = NULL, surface_properties = NULL,
+  #                           numOfThreads = parallel::detectCores() - 1) {
+  #   
+  #   library(RcppParallel)
+  #   RcppParallel::setThreadOptions(numThreads  = numOfThreads)
+  #   
+  #   # if (!is.null(surface_type)){
+  #   #   EMIS_SFC <- surface_properties[surface == surface_type]$emissivity
+  #   #   ALB_SFC <- surface_properties[surface == surface_type]$albedo
+  #   # } else {
+  #   # 
+  #   # EMIS_SFC <- 0.999
+  #   # ALB_SFC <- 0.45
+  #   # }
+  #   year = lyear(validTime)
+  #   month = lmonth(validTime)
+  #   day = lday(validTime)
+  #   hour = lhour(validTime)         # extract hour from your datatable
+  #   minute = lminute(validTime)     # extract minute from your datatable
+  #   # if (is.null(year)){
+  #   #   year = lyear(validTime)
+  #   # }
+  #   # if (is.null(month)){
+  #   #   month = lmonth(validTime)
+  #   # }
+  #   # if (is.null(month)){
+  #   #   month = lmonth(validTime)
+  #   # }
+  #   # if (is.null(minute)){
+  #   #   minute = lminute(validTime)
+  #   # }
+  #   # 
+  #   ############################################################
+  #   gmt = 0
+  #   avg = 1
+  #   # Convert time to GMT and center in avg period
+  #   hour_gmt <- hour - gmt + (minute - 0.5 * avg) / 60
+  #   dday <- day + hour_gmt / 24
+  #   
+  #   ############################################################
+  #   
+  #   # solarParams = calc_solar_parameters_cpp(year, month, dday, lat, lon, solar)
+  #   solarParams = calc_solar_parameters_cpp2(year, month, dday, lat, lon, solar)
+  #   
+  #   rm(list = c('year', 'month', 'day', 'hour', 'minute','hour_gmt','dday'))
+  #   gc()
+  #   # solarposition_spa_cpp(Rcpp::NumericVector year, Rcpp::NumericVector month, Rcpp::NumericVector day, 
+  #   #                      Rcpp::NumericVector latitude, Rcpp::NumericVector longitude)
+  #   # solarParams2 = solarposition_spa_cpp(year, month, dday, lat, lon)
+  #   # cza <- solarParams$cza
+  #   # fdir <- solarParams$fdir
+  #   # solar <- solarParams$solar
+  #   
+  #   ###############################
+  #   ###############################
+  #   # Unit conversions
+  #   # Tair_og = Tair
+  #   Tair <- Tair + 273.15       # Convert temperature to Kelvin
+  #   relhum <- 0.01 * relhum           # Convert relative humidity to fraction
+  #   ###############################
+  #   ###############################
+  #   
+  #   # Calculate temperatures
+  #   # Tg <- Tglobe(Tair_K, rh, pres, speed, solar, fdir, cza, EMIS_SFC, ALB_SFC)
+  #   # Tg_cpp = Tglobe_cpp(Tair_K, rh, pres, speed, solar, fdir, cza)
+  #   cpp_tg = Tglobe_cpp_vec(Tair, relhum, pres, speed, solarParams$solar, solarParams$fdir, solarParams$cza)
+  #   
+  #   # cat("here5\n")
+  #   
+  #   # data.table(og = round(Tg_og, 1), new = round(Tg, 1), new_cpp = round(Tg_cpp, 1))
+  #   # Tnwb_cpp = Twb_cpp_vec(Tair_K, rh, pres, speed, solar, fdir, cza, 1)
+  #   # Tnwb_cpp = Twb_cpp(Tair_K, rh, pres, speed, solar, fdir, cza, 1)
+  #   cpp_nwb = Twb_cpp_vec(Tair, relhum, pres, speed, solarParams$solar, solarParams$fdir, solarParams$cza, 1)
+  #   
+  #   if (calcTpsy) {
+  #     Tpsy <- Twb(Tair, relhum, pres, speed, solarParams$solar, solarParams$fdir, solarParams$cza, 0)
+  #   }
+  #   
+  #   cpp_Twbg <- 0.1 * (Tair-273.15) + 0.2 * cpp_tg + 0.7 * cpp_nwb
+  #   
+  #   # Convert to Fahrenheit if needed
+  #   if (outputUnits == "F") {
+  #     # Tg <- Tg * 9/5 + 32
+  #     cpp_tg <- cpp_tg * 9/5 + 32
+  #     # Tnwb <- Tnwb * 9/5 + 32
+  #     cpp_nwb <- cpp_nwb * 9/5 + 32
+  #     # Tair <- Tair * 9/5 + 32
+  #     # Twbg <- Twbg * 9/5 + 32
+  #     cpp_Twbg <- cpp_Twbg * 9/5 + 32
+  #     
+  #     cpp_tg = round(cpp_tg, 1)
+  #     # Tg_cpp = round(Tg_cpp, 1)
+  #     # Tnwb = round(Tnwb, 1)
+  #     cpp_nwb = round(cpp_nwb, 1)
+  #     # Twbg = round(Twbg, 1)
+  #     cpp_Twbg = round(cpp_Twbg, 1)
+  #     
+  #     
+  #     if (calcTpsy && !is.null(Tpsy)) {
+  #       Tpsy <- Tpsy * 9/5 + 32
+  #     }
+  #   }
+  #   
+  #   # Prepare the result
+  #   if (calcTpsy) {
+  #     return(data.table(Twbg = cpp_Twbg, Tnwb = cpp_nwb, Tg = cpp_tg, Tpsy = Tpsy))
+  #   } else {
+  #     return(data.table(Twbg = cpp_Twbg, Tnwb = cpp_nwb, Tg = cpp_tg))
+  #   }
+  # }
+  # 
+  # 
+  # ###############################################
+  # ### ======================================== ###
+  # ###       APPLY WBGT CALCULATION TO DATA     ###
+  # ### ======================================== ###
+  # ###############################################
+  # clim_dat[, ta := as.numeric(ta)]
+  # clim_dat[, wind2m := as.numeric(wind2m)]
+  # 
+  # clim_dat[, c("wbgt_cpp", "nwb_cpp", "tg_cpp") := {
+  #   wbgt_result <- calc_wbgt_cpp(
+  #     validTime = validTime,
+  #     lat = lat, lon = lon,
+  #     solar = ssrd, pres = pres, Tair = ta, relhum = rh, speed = wind2m,
+  #     zspeed = rep(2, .N), dT = rep(1, .N), urban = rep(1, .N),
+  #     calcTpsy = FALSE, convergencethreshold = 0.01, outputUnits = "C",
+  #     numOfThreads = numOfThreads_forWBGTcalc
+  #   )
+  #   .(wbgt_result$Twbg, wbgt_result$Tnwb, wbgt_result$Tg)
+  # }]
+  # 
+  clim_dat[, c("wbgt", "nwb", "tg") := {
+    wbgt_result <- jj::calcWBGT(
       validTime = validTime,
       lat = lat, lon = lon,
       solar = ssrd, pres = pres, Tair = ta, relhum = rh, speed = wind2m,
@@ -478,29 +516,29 @@ era5_grib_process <- function(grib_file, year, month, redo = FALSE,
       calcTpsy = FALSE, convergencethreshold = 0.01, outputUnits = "C",
       numOfThreads = numOfThreads_forWBGTcalc
     )
-    .(wbgt_result$Twbg, wbgt_result$Tnwb, wbgt_result$Tg)
+    .(wbgt_result$wbgt, wbgt_result$nwb, wbgt_result$tg)
   }]
+  
   
   log_progress(log_file, year, month, "calc_wbgt", "completed", as.character(Sys.time()))
   
-  setnames(clim_dat, c("wbgt_cpp", "nwb_cpp", "tg_cpp"), c("wbgt", "nwb", "tg"))
   
   ###############################################
   ### ======================================== ###
   ###    UNIT CONVERSION & FINAL DATA PROCESSING   ###
-  ### ======================================== ###
-  ###############################################
-  units(clim_dat$ta) <- "degC"
-  units(clim_dat$wind2m) <- "m/s"
-  # clim_dat[, `:=`(
-  #   wbgt = round(set_units(wbgt, "degF"), 1),
-  #   nwb = round(set_units(nwb, "degF"), 1),
-  #   tg = round(set_units(tg, "degF"), 1),
-  #   ta = set_units(ta, "degF"),
-  #   td = set_units(td, "degF"),
-  #   wind2m = set_units(wind2m, "mph"),
-  #   wind10m = set_units(wind10m, "mph")
-  # )]
+  # ### ======================================== ###
+  # ###############################################
+  # unit(clim_dat$ta) <- "degC"
+  # unit(clim_dat$wind2m) <- "m/s"
+  # # clim_dat[, `:=`(
+  # #   wbgt = round(set_units(wbgt, "degF"), 1),
+  # #   nwb = round(set_units(nwb, "degF"), 1),
+  # #   tg = round(set_units(tg, "degF"), 1),
+  # #   ta = set_units(ta, "degF"),
+  # #   td = set_units(td, "degF"),
+  # #   wind2m = set_units(wind2m, "mph"),
+  # #   wind10m = set_units(wind10m, "mph")
+  # # )]
   
   clim_dat <- rbindlist(list(clim_dat, tempdt_nassrd), fill = TRUE)
   setorder(clim_dat, id)
@@ -626,7 +664,7 @@ era5_grib_process <- function(grib_file, year, month, redo = FALSE,
   # after rcpp already loaded: XX min
   
   log_progress(log_file, year, charnum(month), "save_results", "completed",
-               paste("Saved file:", parquet_file))
+               paste0("Saved file:", parquet_file))
   cat("Saved parquet", parquet_file, as.character(Sys.time()), "\n")
   
   rm(clim_dat)
@@ -688,6 +726,9 @@ all_grib_allvars_files <- all_grib_allvars_files[order(year, month)]
 
 all_grib_allvars_files[is.na(filename)][,.N,by=year]
 
+
+all_grib_allvars_files[,.N,by=year]
+
 all_grib_allvars_files = all_grib_allvars_files[!is.na(filename)]
 
 # ================================================
@@ -703,6 +744,9 @@ all_grib_allvars_files
 length(all_grib_allvars_files)
 
 
+which(all_grib_allvars_files$year == 1992)
+
+all_grib_allvars_files = all_grib_allvars_files[year == 1992]
 # ================================================
 # =            RUN PARALLEL PROCESSING           =
 # ============================S===================
