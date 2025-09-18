@@ -24,7 +24,7 @@ viz_out <- file.path(stream_dir, paste0("deliverables_", format(Sys.time(), "%Y%
 dir.create(viz_out, showWarnings = FALSE, recursive = TRUE)
 
 # Focus
-years_keep   <- 2000:2022
+years_keep   <- 1980:2024
 scheme_focus <- "nearest1"   # change to "idw4" to compare
 
 # ---- 1) Read & prep ----
@@ -124,6 +124,9 @@ roll7 <- risks_collapsed[, .(date, risk_7d = frollsum(as.integer(risk_day), 7, a
 yr_palm <- collapse_by_year(daily, "palm_hours", sum)
 yr_work_all <- collapse_by_year(daily, "work_all_pct", mean)
 mon_work_day <- collapse_by_month(daily, "work_day_pct", mean)
+
+
+
 
 # ---------- Plot helpers ----------
 open_file <- function(path) {
