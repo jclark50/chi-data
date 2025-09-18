@@ -95,11 +95,6 @@ CHI-Data/
 
 ---
 
-## License
-[MIT License](LICENSE) unless otherwise noted.  
-Data usage may be restricted by source—see project-level READMEs.
-
----
 
 ## Contact
 For questions, open an issue or contact project leads.
