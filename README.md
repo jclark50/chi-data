@@ -1,6 +1,3 @@
----
-
-```markdown
 # CHI-Data
 
 **Climate & Health Initiative (CHI) Data Repository**  
@@ -106,4 +103,3 @@ Data usage may be restricted by source—see project-level READMEs.
 
 ## Contact
 For questions, open an issue or contact project leads.
-````
