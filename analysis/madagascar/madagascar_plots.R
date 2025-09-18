@@ -32,6 +32,8 @@ Sys.setenv("tables_dir" = "C:/Users/jordan/R_Projects/CHI-Data/analysis/madagasc
 tables_dir <- Sys.getenv("tables_dir")
 
 
+dir.create(figures_dir)
+dir.create(tables_dir)
 
 
 season_start_month <- 8    # Aug 1 season start (adjustable)
@@ -51,7 +53,7 @@ daily_path <- file.path(stream_dir, "daily_agg")  # change to "daily_agg_by_year
 
 # Focus
 years_keep   <- 1980:2024
-scheme_focus <- "idw4"   # change to "idw4" to compare
+scheme_focus <- "nearest1"   # change to "idw4" to compare
 
 # ---- 1) Read & prep ----
 daily_ds <- open_dataset(daily_path, format = "parquet", unify_schemas = TRUE)
@@ -186,91 +188,142 @@ set_plot_theme <- function() {
 draw_hgrid <- function(y) abline(h = pretty(y), col = "gray90", lwd = 1)
 draw_vgrid <- function(x) abline(v = pretty(x), col = "gray95", lwd = 1)
 
-# ---- P1) Phytophthora hours per year (averaged across villages) ----
-png1 <- file.path(figures_dir, "P1_palm_hours_yearlines_mean.png")
-png(png1, 1600, 950, res = 150); # set_plot_theme()
-xl <- range(yr_palm$year); yl <- range(pretty(yr_palm$val, 8))
+# # ---- P1) Phytophthora hours per year (averaged across villages) ----
+# png1 <- file.path(figures_dir, "P1_palm_hours_yearlines_mean.png")
+# png(png1, 1600, 950, res = 150); # set_plot_theme()
+# xl <- range(yr_palm$year); yl <- range(pretty(yr_palm$val, 8))
+# plot(NA, xlim = xl, ylim = yl, xlab = "Year",
+#      ylab = "Phytophthora-favorable hours / year",
+#      main = "Phytophthora hours (village mean)")
+# draw_hgrid(yl); draw_vgrid(xl)
+# lines(yr_palm$year, yr_palm$val, lwd = 3, col = "#444C5C"); points(yr_palm$year, yr_palm$val, pch = 16, cex = 1.1)
+# dev.off(); open_file(png1)
+
+
+
+
+
+yr_palm <- daily[, .(palm_hours = sum(palm_hours, na.rm = TRUE)), 
+                 by = .(village, year)][order(village, year)]
+
+cols <- c("Mandena" = "#1b9e77", "Sarahandrano" = "#d95f02")
+
+png1 <- file.path(figures_dir, "P1_palm_hours_yearlines_byvillage.png")
+png(png1, 1600, 950, res = 150)
+xl <- range(yr_palm$year); yl <- range(pretty(yr_palm$palm_hours, 8))
 plot(NA, xlim = xl, ylim = yl, xlab = "Year",
      ylab = "Phytophthora-favorable hours / year",
-     main = "Phytophthora hours (village mean)")
+     main = "Phytophthora hours per village")
 draw_hgrid(yl); draw_vgrid(xl)
-lines(yr_palm$year, yr_palm$val, lwd = 3, col = "#444C5C"); points(yr_palm$year, yr_palm$val, pch = 16, cex = 1.1)
+for (vil in unique(yr_palm$village)) {
+  s <- yr_palm[village == vil]
+  lines(s$year, s$palm_hours, lwd = 2, col = cols[vil])
+  points(s$year, s$palm_hours, pch = 16, col = cols[vil])
+}
+legend("topleft", bty = "n", lwd = 2, pch = 16, col = cols, legend = names(cols))
 dev.off(); open_file(png1)
 
-# ---- P2) Workability - all hours (averaged) ----
-png2 <- file.path(figures_dir, "P2_workability_all_yearlines_mean.png")
-png(png2, 1600, 950, res = 150); # set_plot_theme()
-xl <- range(yr_work_all$year); yl <- range(pretty(yr_work_all$val, 8))
-plot(NA, xlim = xl, ylim = yl, xlab = "Year",
-     ylab = "Workability (%, all hours)",
-     main = "Workability - all hours (village mean)")
-draw_hgrid(yl); draw_vgrid(xl)
-lines(yr_work_all$year, yr_work_all$val, lwd = 3, col = "#6C757D"); points(yr_work_all$year, yr_work_all$val, pch = 16, cex = 1.1)
-dev.off(); open_file(png2)
 
 
 
 
 
-# ---- P3) Monthly workability (daytime) climatology (averaged) ----
-png3 <- file.path(figures_dir, "P3_workability_monthly_day_clim_mean.png")
-png(png3, 1600, 950, res = 150); # set_plot_theme()
-xl <- c(1,12); yl <- range(pretty(mon_work_day$val, 8))
-plot(NA, xlim = xl, ylim = yl, xaxt = "n",
-     xlab = "Month", ylab = "Workability (%, 09-16)",
-     main = "Monthly workability - daytime (village mean)")
-axis(1, at = 1:12, labels = month.abb, cex.axis = 1.2)
-draw_hgrid(yl); abline(v = 1:12, col = "gray97")
-lines(mon_work_day$month, mon_work_day$val, lwd = 3, col = "#495057"); points(mon_work_day$month, mon_work_day$val, pch = 16, cex = 1.1)
-dev.off(); open_file(png3)
+# 
+# yr_work_all <- daily[, .(work_all = mean(work_all_pct, na.rm = TRUE)),
+#                      by = .(village, year)][order(village, year)]
+# 
+# png2 <- file.path(figures_dir, "P2_workability_all_yearlines_byvillage.png")
+# png(png2, 1600, 950, res = 150)
+# xl <- range(yr_work_all$year); yl <- range(pretty(yr_work_all$work_all, 8))
+# plot(NA, xlim = xl, ylim = yl, xlab = "Year",
+#      ylab = "Workability (%, all hours)",
+#      main = "Workability (all hours) by village")
+# draw_hgrid(yl); draw_vgrid(xl)
+# for (vil in unique(yr_work_all$village)) {
+#   s <- yr_work_all[village == vil]
+#   lines(s$year, s$work_all, lwd = 2, col = cols[vil])
+#   points(s$year, s$work_all, pch = 16, col = cols[vil])
+# }
+# legend("bottomleft", bty = "n", lwd = 2, pch = 16, col = cols, legend = names(cols))
+# dev.off(); open_file(png2)
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# mon_work_day <- daily[, .(work_day = mean(work_day_pct, na.rm = TRUE)),
+#                       by = .(village, month)][order(village, month)]
+# 
+# png3 <- file.path(figures_dir, "P3_workability_monthly_day_byvillage.png")
+# png(png3, 1600, 950, res = 150)
+# xl <- c(1,12); yl <- range(pretty(mon_work_day$work_day, 8))
+# plot(NA, xlim = xl, ylim = yl, xaxt = "n",
+#      xlab = "Month", ylab = "Workability (%, 09-16)",
+#      main = "Monthly daytime workability by village")
+# axis(1, at = 1:12, labels = month.abb, cex.axis = 1.2)
+# draw_hgrid(yl); abline(v = 1:12, col = "gray97")
+# for (vil in unique(mon_work_day$village)) {
+#   s <- mon_work_day[village == vil]
+#   lines(s$month, s$work_day, lwd = 2, col = cols[vil])
+#   points(s$month, s$work_day, pch = 16, col = cols[vil])
+# }
+# legend("bottomleft", bty = "n", lwd = 2, pch = 16, col = cols, legend = names(cols))
+# dev.off(); open_file(png3)
 
-# ---- P4) Seasonal timing (center-of-mass & 30-day peak, averaged) ----
-png4 <- file.path(figures_dir, "P4_season_timing_mean.png")
-png(png4, 1600, 950, res = 150); # set_plot_theme()
-yl <- c(1,365); xl <- range(seasonal$season_year)
+
+
+
+
+
+
+png4 <- file.path(figures_dir, "P4_season_timing_byvillage.png")
+png(png4, 1600, 950, res = 150)
+yl <- c(1,365); xl <- range(seasonal_vil$season_year)
 plot(NA, xlim = xl, ylim = yl,
      xlab = "Season-year (Aug???Jul)", ylab = "Day of season (DOY)",
-     main = "Timing of Phytophthora season (village mean)")
+     main = "Timing of Phytophthora season by village")
 abline(h = seq(0,360,30), col = "gray92"); draw_vgrid(xl)
-points(seasonal$season_year, seasonal$peak30_doy, pch = 16, cex = 1.1, col = "#546A7B")
-points(seasonal$season_year, seasonal$com_doy,   pch = 0,  lwd = 2,  col = "#546A7B")
-legend("topleft", bty = "n", pch = c(16,0), lwd = c(NA,2),
-       col = "#546A7B", legend = c("Peak 30-day", "Center of timing"))
+for (vil in unique(seasonal_vil$village)) {
+  s <- seasonal_vil[village == vil]
+  points(s$season_year, s$peak30_doy, pch = 16, col = cols[vil])
+  points(s$season_year, s$com_doy,   pch = 0,  col = cols[vil])
+}
+legend("topleft", bty = "n", pch = c(16,0), col = rep(cols, each=2),
+       legend = paste(rep(names(cols), each=2), c("Peak30","Center"), sep=" - "))
 dev.off(); open_file(png4)
 
 
+daily[, risk_day := palm_hours >= riskday_min_hours]
+monthly_risk <- daily[, .(risk_days = mean(sum(risk_day), na.rm = TRUE)),
+                      by =  c('month', 'village')][, .(risk_days = mean(risk_days)), by = c('month', 'village')]
 
-# ---- P5) Risk days per month (mean across years, averaged villages) ----
-png5 <- file.path(figures_dir, "P5_riskdays_per_month_mean.png")
-png(png5, 1700, 950, res = 150); # set_plot_theme()
-
-
+png5 <- file.path(figures_dir, "P5_riskdays_per_month_byvillage.png")
+png(png5, 1700, 950, res = 150)
 yl <- range(0, max(pretty(monthly_risk$risk_days, 10))+20)
-
-
-mid <- barplot(monthly_risk$risk_days, ylim = yl, col = "#94A3B8", border = "gray40",
-               names.arg = month.abb, cex.names = 1.2,
-               ylab = "Risk days per month (average across years)",
-               main = sprintf("Risk days (???%dh/day) - Phytophthora", riskday_min_hours))
-
-
-abline(h = pretty(yl), col = "gray90"); box()
-text(mid, monthly_risk$risk_days + 0.03*diff(yl), labels = round(monthly_risk$risk_days,1), cex = 1.0)
+mat <- tapply(monthly_risk$risk_days, list(monthly_risk$village, monthly_risk$month), mean)
+barplot(mat, beside = TRUE, ylim = yl, col = cols,
+        names.arg = month.abb, ylab = "Risk days per month (avg)",
+        main = sprintf("Risk days (???%dh/day) - Phytophthora", riskday_min_hours))
+legend("topleft", bty = "n", fill = cols, legend = names(cols))
 dev.off(); open_file(png5)
+# 
+# 
+# 
+# # ---- P6) Spells (runs of consecutive risky days) ----
+# png6 <- file.path(figures_dir, "P6_risk_spells_length_hist.png")
+# png(png6, 1500, 950, res = 150); # set_plot_theme()
+# barplot(spells$N, names.arg = spells$len, col = "#6B9080", border = "gray40",
+#         xlab = "Spell length (consecutive risk days)",
+#         ylab = "Count (2000-2022, village-collapsed)",
+#         main = "Distribution of risk-day spells")
+# abline(h = pretty(range(spells$N)), col = "gray90"); box()
+# dev.off(); open_file(png6)
+# 
 
-
-
-
-
-# ---- P6) Spells (runs of consecutive risky days) ----
-png6 <- file.path(figures_dir, "P6_risk_spells_length_hist.png")
-png(png6, 1500, 950, res = 150); # set_plot_theme()
-barplot(spells$N, names.arg = spells$len, col = "#6B9080", border = "gray40",
-        xlab = "Spell length (consecutive risk days)",
-        ylab = "Count (2000-2022, village-collapsed)",
-        main = "Distribution of risk-day spells")
-abline(h = pretty(range(spells$N)), col = "gray90"); box()
-dev.off(); open_file(png6)
 
 
 # ---- Save compact CSVs for the figures ----
@@ -281,6 +334,26 @@ fwrite(seasonal,      file.path(tables_dir, "T_season_timing_mean.csv"))
 fwrite(monthly_risk,  file.path(tables_dir, "T_riskdays_per_month_mean.csv"))
 
 cat("\n??? Wrote plots & tables to:\n", normalizePath(tables_dir), "\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
