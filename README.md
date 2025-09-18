@@ -48,7 +48,7 @@ CHI-Data/
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-org/CHI-Data.git
+git clone https://github.com/jclark50/CHI-Data.git
 cd CHI-Data
 ````
 
