@@ -9,6 +9,9 @@ Perfect — here’s a **pair of full drafts**. You can drop them straight into 
 
 This directory contains the end-to-end workflow for processing ERA5-Land climate data for northeast Madagascar villages (Sarahandrano and Mandena). The goal is to assess climate change impacts on crop disease risk (Phytophthora, Anthracnose) and labor/workability.
 
+GOOGLE DRIVE LINK: https://drive.google.com/drive/folders/1TsTExu4fv4cIeY6rgXawh1uwjDUKlN45?usp=sharing
+
+
 ---
 
 ## Setup
