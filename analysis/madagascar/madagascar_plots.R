@@ -24,8 +24,13 @@ Sys.setenv("ERA5_STREAM" = "C:/Users/jordan/Desktop/madagascar/stream")
 stream_dir <- Sys.getenv("ERA5_STREAM", unset = file.path(out_root, "streamed"))
 
 
-Sys.setenv("analysis_out_dir" = "C:/Users/jordan/R_Projects/CHI-Data/analysis/madagascar/outputs")
-analysis_out_dir <- Sys.getenv("analysis_out_dir")
+Sys.setenv("figures_dir" = "C:/Users/jordan/R_Projects/CHI-Data/analysis/madagascar/outputs/figures")
+figures_dir <- Sys.getenv("figures_dir")
+
+
+Sys.setenv("tables_dir" = "C:/Users/jordan/R_Projects/CHI-Data/analysis/madagascar/outputs/tables")
+tables_dir <- Sys.getenv("tables_dir")
+
 
 
 
@@ -40,9 +45,9 @@ season_start <- 8    # Aug 1 season start (adjustable)
 # stream_dir <- "C:/data/gridded/era5land/madagascar/madagascar_hourly_daily_streamed"
 daily_path <- file.path(stream_dir, "daily_agg")  # change to "daily_agg_by_year" if you migrated
 
-# Output folder for this run
-viz_out <- file.path(analysis_out_dir, paste0("deliverables_", format(Sys.time(), "%Y%m%d_%H%M")))
-dir.create(viz_out, showWarnings = FALSE, recursive = TRUE)
+# # Output folder for this run
+# figures_dir <- file.path(analysis_out_dir, paste0("deliverables_", format(Sys.time(), "%Y%m%d_%H%M")))
+# dir.create(figures_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Focus
 years_keep   <- 1980:2024
@@ -150,7 +155,7 @@ monthly_risk <- daily[, .(risk_days = mean(sum(risk_day), na.rm = TRUE)),
 risks_collapsed <- daily[, .(risk_day = any(risk_day)), by = date][order(date)]
 rle_risk <- rle(risks_collapsed$risk_day)
 spells <- data.table(len = rle_risk$lengths, risk = rle_risk$values)[risk == TRUE, .N, by = len][order(len)]
-fwrite(spells, file.path(viz_out, "risk_spells_length_counts.csv"))
+fwrite(spells, file.path(tables_dir, "risk_spells_length_counts.csv"))
 
 # 7-day rolling series (collapsed)
 roll7 <- risks_collapsed[, .(date, risk_7d = frollsum(as.integer(risk_day), 7, align="right"))]
@@ -182,7 +187,7 @@ draw_hgrid <- function(y) abline(h = pretty(y), col = "gray90", lwd = 1)
 draw_vgrid <- function(x) abline(v = pretty(x), col = "gray95", lwd = 1)
 
 # ---- P1) Phytophthora hours per year (averaged across villages) ----
-png1 <- file.path(viz_out, "P1_palm_hours_yearlines_mean.png")
+png1 <- file.path(figures_dir, "P1_palm_hours_yearlines_mean.png")
 png(png1, 1600, 950, res = 150); # set_plot_theme()
 xl <- range(yr_palm$year); yl <- range(pretty(yr_palm$val, 8))
 plot(NA, xlim = xl, ylim = yl, xlab = "Year",
@@ -193,7 +198,7 @@ lines(yr_palm$year, yr_palm$val, lwd = 3, col = "#444C5C"); points(yr_palm$year,
 dev.off(); open_file(png1)
 
 # ---- P2) Workability - all hours (averaged) ----
-png2 <- file.path(viz_out, "P2_workability_all_yearlines_mean.png")
+png2 <- file.path(figures_dir, "P2_workability_all_yearlines_mean.png")
 png(png2, 1600, 950, res = 150); # set_plot_theme()
 xl <- range(yr_work_all$year); yl <- range(pretty(yr_work_all$val, 8))
 plot(NA, xlim = xl, ylim = yl, xlab = "Year",
@@ -208,7 +213,7 @@ dev.off(); open_file(png2)
 
 
 # ---- P3) Monthly workability (daytime) climatology (averaged) ----
-png3 <- file.path(viz_out, "P3_workability_monthly_day_clim_mean.png")
+png3 <- file.path(figures_dir, "P3_workability_monthly_day_clim_mean.png")
 png(png3, 1600, 950, res = 150); # set_plot_theme()
 xl <- c(1,12); yl <- range(pretty(mon_work_day$val, 8))
 plot(NA, xlim = xl, ylim = yl, xaxt = "n",
@@ -220,7 +225,7 @@ lines(mon_work_day$month, mon_work_day$val, lwd = 3, col = "#495057"); points(mo
 dev.off(); open_file(png3)
 
 # ---- P4) Seasonal timing (center-of-mass & 30-day peak, averaged) ----
-png4 <- file.path(viz_out, "P4_season_timing_mean.png")
+png4 <- file.path(figures_dir, "P4_season_timing_mean.png")
 png(png4, 1600, 950, res = 150); # set_plot_theme()
 yl <- c(1,365); xl <- range(seasonal$season_year)
 plot(NA, xlim = xl, ylim = yl,
@@ -236,7 +241,7 @@ dev.off(); open_file(png4)
 
 
 # ---- P5) Risk days per month (mean across years, averaged villages) ----
-png5 <- file.path(viz_out, "P5_riskdays_per_month_mean.png")
+png5 <- file.path(figures_dir, "P5_riskdays_per_month_mean.png")
 png(png5, 1700, 950, res = 150); # set_plot_theme()
 
 
@@ -258,7 +263,7 @@ dev.off(); open_file(png5)
 
 
 # ---- P6) Spells (runs of consecutive risky days) ----
-png6 <- file.path(viz_out, "P6_risk_spells_length_hist.png")
+png6 <- file.path(figures_dir, "P6_risk_spells_length_hist.png")
 png(png6, 1500, 950, res = 150); # set_plot_theme()
 barplot(spells$N, names.arg = spells$len, col = "#6B9080", border = "gray40",
         xlab = "Spell length (consecutive risk days)",
@@ -269,13 +274,13 @@ dev.off(); open_file(png6)
 
 
 # ---- Save compact CSVs for the figures ----
-fwrite(yr_palm,       file.path(viz_out, "T_yearly_palm_hours_mean.csv"))
-fwrite(yr_work_all,   file.path(viz_out, "T_yearly_workability_all_mean.csv"))
-fwrite(mon_work_day,  file.path(viz_out, "T_monthly_workability_day_clim_mean.csv"))
-fwrite(seasonal,      file.path(viz_out, "T_season_timing_mean.csv"))
-fwrite(monthly_risk,  file.path(viz_out, "T_riskdays_per_month_mean.csv"))
+fwrite(yr_palm,       file.path(tables_dir, "T_yearly_palm_hours_mean.csv"))
+fwrite(yr_work_all,   file.path(tables_dir, "T_yearly_workability_all_mean.csv"))
+fwrite(mon_work_day,  file.path(tables_dir, "T_monthly_workability_day_clim_mean.csv"))
+fwrite(seasonal,      file.path(tables_dir, "T_season_timing_mean.csv"))
+fwrite(monthly_risk,  file.path(tables_dir, "T_riskdays_per_month_mean.csv"))
 
-cat("\n??? Wrote plots & tables to:\n", normalizePath(viz_out), "\n")
+cat("\n??? Wrote plots & tables to:\n", normalizePath(tables_dir), "\n")
 
 
 
