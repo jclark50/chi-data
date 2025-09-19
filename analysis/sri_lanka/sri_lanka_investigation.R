@@ -170,58 +170,242 @@ library(tabulapdf)
 library(tabulizerjars)
 
 
-extract_lepto_anylayout2 <- function(url) {
-  tf <- tempfile(fileext = ".pdf")
-  GET(url, write_disk(tf, overwrite = TRUE),
-      user_agent("DGHI-CHI-WER/1.0"), timeout(60))
-  
-  pages <- pdf_text(tf)
-  results <- list()
-  
-  file.copy(tf, "test.pdf", overwrite = TRUE)
-  tabs <- extract_tables("test.pdf", method = "stream", guess = TRUE, output = "tibble")
-  
-  
-  # tabs <- extract_tables(tf, method = "lattice", guess = TRUE, output = "tibble")
-  
-  
-  
-  
-  
-  # tabs <- extract_tables("test.pdf", method = "stream", guess = TRUE, output = "tibble")
-  
-  pagedat = list()
-  pagedat_dengue = list()
-  for (apg in 1:length(tabs)){
-    t3 = as.data.table(tabs[[apg]])
-    names(t3) <- gsub(" ","",names(t3))
-    leptoidx = which(names(t3) %like% "Lepto")
-    if (length(leptoidx) == 0) next
-    pagedat[[apg]] = t3[, ..leptoidx]
-    pagedat_dengue[[apg]] = t3[, 1]
+library(data.table)
+library(stringr)
+library(tabulapdf)
+library(tabulizerjars)
+
+`%||%` <- function(a,b) if (!is.null(a)) a else b
+.norm <- function(x) { x <- gsub("[\u00A0]", " ", x, perl=TRUE); trimws(x) }
+.parse_ints <- function(x) {
+  xs <- str_extract_all(.norm(x %||% ""), "\\b\\d{1,6}\\b")[[1]]
+  if (!length(xs)) return(integer(0))
+  as.integer(xs)
+}
+.has_letters <- function(x) grepl("[[:alpha:]]", x %||% "")
+
+.clean_name <- function(v) {
+  v <- .norm(v)
+  v <- gsub("\\.+", "", v)
+  v <- gsub("[^A-Za-z0-9]+", "", v)
+  tolower(v)
+}
+
+.pick_district_col <- function(mat) {
+  shares <- sapply(seq_len(ncol(mat)), function(j) mean(.has_letters(mat[, j]), na.rm = TRUE))
+  j <- which.max(shares); if (!length(j)) j <- 1L
+  as.integer(j[1])
+}
+.first_data_row <- function(mat, c_d) {
+  for (r in seq_len(nrow(mat))) {
+    cell <- .norm(mat[r, c_d])
+    if (nzchar(cell) &&
+        !grepl("(?i)^(table|page|source|key to table|wer\\s+sri\\s+lanka)", cell) &&
+        .has_letters(cell)) return(r)
   }
-  pagedat = rbindlist(pagedat)
-  pagedat_dengue = rbindlist(pagedat_dengue)
+  1L
+}
+.is_footer <- function(x) grepl("(?i)^(total|source|key to table|page|wer\\s+sri\\s+lanka)", .norm(x %||% ""))
+
+.extract_dengue_ab_from_row <- function(row_vec, c_d) {
+  dcell <- row_vec[c_d] %||% ""
+  dints <- .parse_ints(dcell)
+  if (length(dints) >= 2) return(list(A = dints[1], B = dints[length(dints)]))
+  A <- if (length(dints)) dints[length(dints)] else NA_integer_
+  right <- row_vec[seq.int(from = min(c_d + 1L, length(row_vec)), to = length(row_vec))]
+  B <- NA_integer_
+  if (length(right)) {
+    for (k in seq_along(right)) {
+      cand <- .parse_ints(right[k]); if (length(cand)) { B <- cand[min(2, length(cand))]; break }
+    }
+  }
+  list(A = A, B = B)
+}
+
+.build_header_texts <- function(mat, c_d, lines_above = 3L) {
+  r0 <- .first_data_row(mat, c_d)
+  hdr_rows <- max(1, r0 - lines_above):(r0 - 1)
+  hdr_rows <- hdr_rows[hdr_rows >= 1]
+  if (!length(hdr_rows)) return(rep("", ncol(mat)))
+  vapply(seq_len(ncol(mat)), function(j) {
+    txt <- paste(.norm(mat[hdr_rows, j]), collapse = " ")
+    txt <- gsub("\\.+", " ", txt)
+    gsub("\\s+", " ", txt)
+  }, character(1))
+}
+
+.pick_lepto_col_two_stage <- function(mat, c_d, tab_names, hdr_texts) {
+  names_clean <- .clean_name(tab_names)
+  names_clean[names_clean %in% c("na","")] <- ""
+  lepto_alias <- "(?i)lepto"
+  poison_alias <- "(?i)poison|food"
   
-  pagedat = cbind(pagedat, pagedat_dengue)
+  name_hits <- which(grepl(lepto_alias, names_clean))
+  poison_by_name <- which(grepl(poison_alias, names_clean))
+  if (length(name_hits)) {
+    merged_pref <- name_hits[grepl(poison_alias, names_clean[name_hits])]
+    pool <- if (length(merged_pref)) merged_pref else name_hits
+    r0 <- .first_data_row(mat, c_d); rows <- seq.int(r0, nrow(mat))
+    num_share <- sapply(pool, function(j) {
+      vals <- mat[rows, j]
+      mean(vapply(vals, function(v) length(.parse_ints(v)) >= 1, logical(1)), na.rm = TRUE)
+    })
+    pool <- pool[order(num_share, decreasing = TRUE)]
+    if (length(poison_by_name)) {
+      closest_to_poison <- function(j) min(abs(j - poison_by_name))
+      pool <- pool[order(sapply(pool, closest_to_poison))]
+    }
+    return(pool[1])
+  }
   
+  hdr_clean <- .clean_name(hdr_texts)
+  hdr_clean[hdr_clean %in% c("na","")] <- ""
+  text_hits <- which(grepl(lepto_alias, hdr_clean))
+  if (!length(text_hits)) return(NA_integer_)
+  merged_pref <- text_hits[grepl(poison_alias, hdr_clean[text_hits])]
+  pool <- if (length(merged_pref)) merged_pref else text_hits
   
-  return(pagedat)
+  r0 <- .first_data_row(mat, c_d); rows <- seq.int(r0, nrow(mat))
+  num_share <- sapply(pool, function(j) {
+    vals <- mat[rows, j]
+    mean(vapply(vals, function(v) length(.parse_ints(v)) >= 1, logical(1)), na.rm = TRUE)
+  })
+  pool <- pool[order(num_share, decreasing = TRUE)]
+  
+  poison_by_hdr <- which(grepl(poison_alias, hdr_clean))
+  if (length(poison_by_hdr)) {
+    closest_to_poison <- function(j) min(abs(j - poison_by_hdr))
+    pool <- pool[order(sapply(pool, closest_to_poison))]
+  }
+  pool[1]
+}
+
+.parse_lepto_from_cell <- function(cell) {
+  ints <- .parse_ints(cell)
+  if (length(ints) >= 4) return(list(A = ints[length(ints)-1L], B = ints[length(ints)]))
+  if (length(ints) == 3)  return(list(A = ints[2],               B = ints[3]))
+  if (length(ints) == 2)  return(list(A = ints[1],               B = ints[2]))
+  if (length(ints) == 1)  return(list(A = ints[1],               B = NA_integer_))
+  list(A = NA_integer_, B = NA_integer_)
+}
+
+# NEW: try to salvage Lepto B from nearby columns if cell had only one number
+.salvage_lepto_B_from_neighbors <- function(mat, r, lepto_col, names_clean, hdr_clean) {
+  nC <- ncol(mat)
+  bad_neighbors <- "(?i)typh|viral|hep|rabies|chicken|mening|tuberc|wr?cd|total"
+  good_neighbors <- "(?i)lepto|^$|^na$"
+  # search 1-2 columns to the right
+  for (j in seq(lepto_col + 1L, min(lepto_col + 2L, nC))) {
+    nc <- names_clean[j] %||% ""; hc <- hdr_clean[j] %||% ""
+    if (grepl(bad_neighbors, nc) || grepl(bad_neighbors, hc)) next
+    if (!(grepl(good_neighbors, nc) || grepl(good_neighbors, hc))) next
+    ints <- .parse_ints(mat[r, j])
+    if (length(ints) >= 1) return(ints[1])
+  }
+  NA_integer_
+}
+
+extract_dengue_lepto_stream <- function(pdf_path, keep_total = FALSE, debug = FALSE) {
+  tabs <- tryCatch(
+    extract_tables(pdf_path, guess = TRUE, method = "stream", output = "tibble"),
+    error = function(e) NULL
+  )
+  if (is.null(tabs) || !length(tabs)) return(NULL)
+  
+  out_all <- list()
+  
+  for (ti in seq_along(tabs)) {
+    tab <- as.data.table(tabs[[ti]])  # your requirement
+    if (!is.data.table(tab) || nrow(tab) < 5 || ncol(tab) < 1) next
+    
+    tab_chr <- as.data.frame(lapply(tab, as.character), stringsAsFactors = FALSE)
+    mat <- as.matrix(apply(tab_chr, 2, .norm))
+    
+    c_d <- .pick_district_col(mat)
+    r0  <- .first_data_row(mat, c_d)
+    
+    names_src <- names(tab)
+    hdr_texts <- .build_header_texts(mat, c_d, lines_above = 3L)
+    
+    lepto_col <- .pick_lepto_col_two_stage(mat, c_d, names_src, hdr_texts)
+    
+    # Precompute cleaned names/headers for neighbor logic
+    names_clean <- .clean_name(names_src)
+    hdr_clean   <- .clean_name(hdr_texts)
+    
+    if (debug) {
+      message(sprintf("Table %d: district_col=%d; lepto_col=%s; name(lepto)='%s'; hdr(lepto)='%s'",
+                      ti, c_d,
+                      ifelse(is.na(lepto_col), "NA", as.character(lepto_col)),
+                      ifelse(is.na(lepto_col), "", names_clean[lepto_col] %||% ""),
+                      ifelse(is.na(lepto_col), "", hdr_clean[lepto_col] %||% "")))
+    }
+    
+    rows_out <- vector("list", nrow(mat)); n_out <- 0L
+    for (r in seq.int(r0, nrow(mat))) {
+      dcell <- mat[r, c_d] %||% ""
+      if (!nzchar(dcell)) next
+      if (.is_footer(dcell) && !keep_total) break
+      
+      district <- .norm(gsub("\\s*\\d+(\\s+\\d+)*\\s*$", "", dcell))
+      if (!nzchar(district) || grepl("(?i)^(table|page|source|key to table)", district)) next
+      
+      dab <- .extract_dengue_ab_from_row(mat[r, ], c_d)
+      A <- dab$A; B <- dab$B
+      
+      L_A <- NA_integer_; L_B <- NA_integer_
+      if (!is.na(lepto_col) && lepto_col <= ncol(mat)) {
+        lep <- .parse_lepto_from_cell(mat[r, lepto_col])
+        L_A <- lep$A; L_B <- lep$B
+        # NEW: if B missing, try neighbors (OCR split)
+        if (is.na(L_B) && !is.na(L_A)) {
+          L_B <- .salvage_lepto_B_from_neighbors(mat, r, lepto_col, names_clean, hdr_clean)
+        }
+      }
+      
+      if (is.na(A) && is.na(B) && is.na(L_A) && is.na(L_B)) next
+      
+      n_out <- n_out + 1L
+      rows_out[[n_out]] <- data.table(
+        table_id = ti,
+        district = district,
+        dengue_A = A, dengue_B = B,
+        lepto_A  = L_A, lepto_B  = L_B
+      )
+    }
+    
+    if (n_out) out_all[[length(out_all)+1L]] <- rbindlist(rows_out[seq_len(n_out)])
+  }
+  
+  if (!length(out_all)) return(NULL)
+  unique(rbindlist(out_all, use.names = TRUE, fill = TRUE))
 }
 
 
 
-idx = idx_fn
-
-urls = idx$url # [451]
-
 # out <- try(extract_lepto_anylayout(u), silent = TRUE)
 jj::timed('start')
-atp=1
+atp=4
 allresults = list()
-for (atp in 1:nrow(idx)){
+for (atp in 156:nrow(idx)){
   currow = idx[atp]
-  res =  try(extract_lepto_anylayout2(currow$url), silent = TRUE)
+  
+  file <- currow$file
+  if (grepl("^https?://", currow$url, ignore.case = TRUE)) {
+    tf <- tempfile(fileext = ".pdf")
+    trydn = try(utils::download.file(currow$url, tf, mode = "wb", quiet = TRUE))
+    if (inherits(trydn, "try-error")) next
+    file <- tf
+  }
+  file.copy(file, "test2.pdf", overwrite = TRUE)
+  
+  pdf_path <- "test2.pdf"  # or "/mnt/data/file5cd8c39c70.pdf"
+  # berryFunctions::openFile(pdf_path)
+  res <- extract_dengue_lepto_stream(pdf_path, debug = TRUE)
+  
+  # if (all(is.na(res$lepto_A))) stop()
+  # if (nrow(res[is.na(lepto_A) & district %like% 'Nuwara Eliya']) != 0) stop()
+  # res =  try(extract_lepto_anylayout2(currow$url), silent = TRUE)
   if (!is.null(res)){
     allresults[[atp]] <- res
     allresults[[atp]]$date_start = currow$date_start
@@ -236,9 +420,19 @@ for (atp in 1:nrow(idx)){
 }
 jj::timed('end')
 
-allresults = rbindlist(allresults, fill=TRUE)
+allresults2 = rbindlist(allresults, fill=TRUE)
 
-# 
+saveRDS(allresults2, "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v3.Rds")
+
+
+
+alld = readRDS("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v3.Rds")
+countna(alld)
+
+alld = alld[district %in% lepto$district][order(date_end)]
+countna(alld)
+
+
 
 
 # allresults[district == 'Colombo']
