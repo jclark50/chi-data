@@ -157,8 +157,20 @@ canonize_district <- function(x) {
   list(hdr_line = hdr_idx[1], hdr_cols = hdr_cols, lepto_i = lepto_i)
 }
 
-# --- Main extractor ---
-extract_lepto_anylayout <- function(url) {
+
+
+
+
+library(data.table)
+library(stringr)
+
+Sys.setenv("JAVA_HOME"="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot")
+
+library(tabulapdf)
+library(tabulizerjars)
+
+
+extract_lepto_anylayout2 <- function(url) {
   tf <- tempfile(fileext = ".pdf")
   GET(url, write_disk(tf, overwrite = TRUE),
       user_agent("DGHI-CHI-WER/1.0"), timeout(60))
@@ -166,109 +178,69 @@ extract_lepto_anylayout <- function(url) {
   pages <- pdf_text(tf)
   results <- list()
   
-  for (p in seq_along(pages)) {
-    lines <- unlist(strsplit(pages[[p]], "\n", fixed = TRUE), use.names = FALSE)
-    lines <- sub("\\s+$", "", lines)  # trim trailing spaces
-    
-    hdr <- .find_header_and_index(lines)
-    if (is.null(hdr)) next
-    
-    header   <- lines[hdr$hdr_line]
-    hdr_cols <- hdr$hdr_cols
-    lepto_i  <- hdr$lepto_i
-    
-    # Position-based backup: index of "Leptos..." start in the header line
-    lepto_pos <- regexpr("(?i)Leptos", header, perl = TRUE)[1]
-    # Token-based A index for Leptos: 1 = district, each disease has A,B ??? A index = 2 * j
-    # j is the position of the disease among hdr_cols excluding first (district)
-    disease_positions <- which(seq_along(hdr_cols) > 1)
-    j <- which(disease_positions == lepto_i)
-    a_token_idx <- if (length(j)) 2 * j else NA_integer_
-    
-    # Start scanning rows after header (skip schema line "A   B   A   B" if present)
-    i <- hdr$hdr_line + 1L
-    if (i <= length(lines) && grepl("\\bA\\s+B\\b", lines[i])) i <- i + 1L
-    
-    page_out <- list()
-    # while (i <= length(lines)) {
-    for (i in 1:length(lines)){
-      l <- lines[i]
-      if (!nzchar(trimws(l))) next
-      if (grepl("(?i)^\\s*(Total|Source|Key to Table|Page|WER\\s+Sri\\s+Lanka)", l)) next
-      
-      # Does the row start with a district label?
-      m <- str_match(l, DIST_PATTERN)
-      if (!all(is.na(m))) {
-        district_raw <- m[1,2]
-        district <- canonize_district(district_raw)
-        
-        # Preferred: token-based (stable when columns are aligned)
-        val <- NA_integer_
-        parts <- strsplit(l, "\\s{2,}")[[1]]
-        if (!is.na(a_token_idx) && length(parts) >= a_token_idx) {
-          val <- suppressWarnings(as.integer(gsub("[^0-9]", "", parts[a_token_idx])))
-        }
-        
-        # Fallback: character-window around the Leptos column start
-        if (is.na(val) || is.na(a_token_idx)) {
-          if (!is.na(lepto_pos) && lepto_pos > 0) {
-            start <- max(1, lepto_pos - 8)
-            end   <- min(nchar(l), lepto_pos + 14)
-            seg   <- substr(l, start, end)
-            cand  <- str_extract(seg, "\\b\\d{1,4}\\b")
-            val   <- suppressWarnings(as.integer(cand))
-          }
-        }
-        
-        if (!is.na(val)) {
-          page_out[[length(page_out) + 1L]] <- data.table(
-            district = district, cases = val,
-            page = p, method = if (!is.na(a_token_idx)) "columns" else "window"
-          )
-        }
-      }
-      # i <- i + 1L
-    }
-    
-    if (length(page_out)) {
-      out <- rbindlist(page_out)
-      out[, url := url]
-      results[[length(results) + 1L]] <- out
-    }
-  }
+  file.copy(tf, "test.pdf", overwrite = TRUE)
+  tabs <- extract_tables("test.pdf", method = "stream", guess = TRUE, output = "tibble")
   
-  if (!length(results)) return(NULL)
-  rbindlist(results, fill = TRUE)
+  
+  # tabs <- extract_tables(tf, method = "lattice", guess = TRUE, output = "tibble")
+  
+  
+  
+  
+  
+  # tabs <- extract_tables("test.pdf", method = "stream", guess = TRUE, output = "tibble")
+  
+  pagedat = list()
+  pagedat_dengue = list()
+  for (apg in 1:length(tabs)){
+    t3 = as.data.table(tabs[[apg]])
+    names(t3) <- gsub(" ","",names(t3))
+    leptoidx = which(names(t3) %like% "Lepto")
+    if (length(leptoidx) == 0) next
+    pagedat[[apg]] = t3[, ..leptoidx]
+    pagedat_dengue[[apg]] = t3[, 1]
+  }
+  pagedat = rbindlist(pagedat)
+  pagedat_dengue = rbindlist(pagedat_dengue)
+  
+  pagedat = cbind(pagedat, pagedat_dengue)
+  
+  
+  return(pagedat)
 }
+
+
 
 idx = idx_fn
 
 urls = idx$url # [451]
 
 # out <- try(extract_lepto_anylayout(u), silent = TRUE)
-
+jj::timed('start')
 atp=1
 allresults = list()
 for (atp in 1:nrow(idx)){
   currow = idx[atp]
-  res =  try(extract_lepto_anylayout(currow$url), silent = TRUE)
+  res =  try(extract_lepto_anylayout2(currow$url), silent = TRUE)
   if (!is.null(res)){
     allresults[[atp]] <- res
     allresults[[atp]]$date_start = currow$date_start
     allresults[[atp]]$date_end = currow$date_end
-    cat(atp, '\n')
+    # cat(atp, '\n')
     
   } else {
     allresults[[atp]] <- data.table()
     cat("couldn't get data", atp, '\n')
-    
   }
-
+  cat(atp, '\n')
 }
+jj::timed('end')
 
 allresults = rbindlist(allresults, fill=TRUE)
 
 # 
+
+
 # allresults[district == 'Colombo']
 # allresults2 = allresults[,c("district","cases","date_end")]
 # allresults2[district == 'Colombo']
