@@ -78,6 +78,9 @@ dir.create(dirname(idx_path), recursive=TRUE)
 
 write.csv(idx_fn, idx_path)
 
+
+
+fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/sri_lanka_WER_index.csv")
 ######################################################################
 ######################################################################
 ######################################################################
@@ -297,10 +300,500 @@ suppressPackageStartupMessages({
   library(scales)
 })
 
+library(jj)
+
+
 setDTthreads(8)
+
+
+
+
+
+
+# MID YEAR POPULATION ESTIMATES 2014-2023
+
+
+library(data.table)
+library(stringr)
+
+Sys.setenv("JAVA_HOME"="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot")
+
+library(tabulapdf)
+library(tabulizerjars)
+# remotes::install_github(c("ropensci/tabulizerjars", "ropensci/tabulizer"), INSTALL_opts = "--no-multiarch")
+
+# --- CONFIG ---
+pdf_path <- "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/Mid-year_population_by_district_and_sex_2024.pdf"  # adjust if needed
+tabs <- extract_tables(pdf_path, method = "lattice", guess = TRUE, output = "tibble")
+
+pdfyears = 2014:2023
+allpopdat = list()
+for (apage in 1:3){
+  pdfpg1 = as.data.table(tabs[[apage]])
+  
+  yrheads = names(pdfpg1)[which(names(pdfpg1) %likeany% pdfyears)]
+  ayy=1
+  alist = list()
+  for (ayy in 1:length(yrheads)){
+    curyear = yrheads[[ayy]]
+    
+    district_names = pdfpg1$District[-1]
+    
+    curpopcol = which(pdfpg1[1] == 'Total')[ayy]
+    curpopcolname = names(pdfpg1)[curpopcol]
+    curpopcol = pdfpg1[, ..curpopcolname]
+    
+    curpopcol = tail(curpopcol, -1)
+    alist[[ayy]] = data.table(year = curyear, district = district_names, poptot = curpopcol)
+    names(  alist[[ayy]] ) <- c('year','district','poptot')
+    
+    
+  }
+  allpopdat[[apage]] = rbindlist(alist)
+  
+}
+allpopdat = rbindlist(allpopdat)
+allpopdat$year = gsub("\\*","",allpopdat$year)
+allpopdat$poptot = gsub(",","",allpopdat$poptot)
+allpopdat$poptot = as.numeric(allpopdat$poptot) * 1000
+allpopdat$year = as.integer(allpopdat$year)
+
+
+
+# head(allpopdat)
+# 
+
+
+
+# ---- Inputs (rename these if your column names differ) ----
+# allpopdat: columns = year (char/int), district (char), poptot (numeric; absolute count)
+# lepto_dt : columns = date (IDate/Date/char), district (char), cases (int)
+
+# Example: if your lepto table uses different names, rename like:
+# setnames(lepto_dt, c("your_date_col","your_dist_col","your_count_col"),
+#                     c("date","district","cases"))
+
+
+
+
+
+# ---- Helpers ----
+normalize_district <- function(x) {
+  # Basic cleanup + known aliases/hyphen fixes (extend as needed)
+  y <- str_squish(str_to_title(x))
+  # specific replacements
+  y <- str_replace_all(y, c(
+    "^Nuwara[ -]?Eliya$" = "Nuwara-Eliya",
+    "^Matale$"          = "Matale",
+    "^Gampaha$"         = "Gampaha",
+    "^Kalutara$"        = "Kalutara",
+    "^Anuradhapura$"    = "Anuradhapura",
+    "^Polonnaruwa$"     = "Polonnaruwa",
+    "^Kurunegala$"      = "Kurunegala",
+    "^Puttalam$"        = "Puttalam",
+    "^Ratnapura$"       = "Ratnapura",
+    "^Kegalle$"         = "Kegalle"
+  ))
+  y
+}
+
+build_pop_lookup <- function(pop_dt, reference_year = 2012L) {
+  # pop_dt: year, district, poptot
+  DT <- copy(pop_dt)
+  # coerce types
+  DT[, year := as.integer(year)]
+  DT[, district := normalize_district(district)]
+  # drop national total rows
+  DT <- DT[!district %in% c("Sri Lanka","Sri-lanka","Sri_Lanka")]
+  
+  # if exact ref year exists, use it; otherwise nearest <= ref; otherwise nearest overall
+  if (reference_year %in% DT$year) {
+    sel <- DT[year == reference_year, .(district, pop = as.numeric(poptot))]
+  } else {
+    # nearest year <= ref
+    yrs_le <- DT[year <= reference_year, max(year, na.rm = TRUE)]
+    if (is.finite(yrs_le)) {
+      sel <- DT[year == yrs_le, .(district, pop = as.numeric(poptot))]
+    } else {
+      # absolute nearest year
+      nearest <- DT[, .(year = year[which.min(abs(year - reference_year))]), by = district]
+      sel <- nearest[DT, on = .(district, year), .(district, pop = as.numeric(poptot))]
+    }
+  }
+  # ensure one row per district
+  sel <- unique(sel, by = "district")
+  sel
+}
+
+prepare_lepto <- function(lepto_dt) {
+  DT <- copy(lepto_dt)
+  # coerce types
+  if (!inherits(DT$date, "Date")) DT[, date := as.IDate(date)]
+  DT[, district := normalize_district(district)]
+  DT[, cases := as.integer(cases)]
+  DT
+}
+
+
+# --- 1) Canonical district list (25 census districts) ---
+districts_census <- c(
+  "Colombo","Gampaha","Kalutara","Kandy","Matale","Nuwara-Eliya",
+  "Galle","Matara","Hambantota","Jaffna","Kilinochchi","Mannar",
+  "Vavuniya","Mullaitivu","Batticaloa","Ampara","Trincomalee",
+  "Kurunegala","Puttalam","Anuradhapura","Polonnaruwa",
+  "Badulla","Monaragala","Ratnapura","Kegalle"
+)
+
+# --- 2) Normalizer + alias map (add rows as you encounter new variants) ---
+alias_map <- data.table(
+  raw = c("Sri Lanka","Nuwara Eliya","Nuwaraeliya","Nuwara-eliya",
+          "Moneragala","Rathnapura","Kalmunai","Kalmuniya",
+          "Galle District","Colombo District","Ampara District",
+          "Puttlam","Vavniya"),
+  canon = c(NA_character_,"Nuwara-Eliya","Nuwara-Eliya","Nuwara-Eliya",
+            "Monaragala","Ratnapura","Ampara","Ampara",
+            "Galle","Colombo","Ampara",
+            "Puttalam","Vavuniya")
+)
+
+norm_dist <- function(x) {
+  x1 <- str_squish(x)
+  x1 <- ifelse(is.na(x1) | x1 == "", NA_character_, x1)
+  # title case but keep hyphenated Eliya
+  x1 <- str_replace_all(str_to_title(x1), "Nuwara Eliya", "Nuwara-Eliya")
+  # apply alias map
+  m <- match(x1, alias_map$raw)
+  x2 <- ifelse(!is.na(m), alias_map$canon[m], x1)
+  x2
+}
+
 
 # -------- Paths --------
 lepto_path <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/WER_leptospirosis_counts.csv"
+
+# ---- Build lookup + join ----
+# pop_lookup <- build_pop_lookup(allpopdat, reference_year = 2012L)
+
+
+lepto = fread(lepto_path)
+lepto[, district := norm_dist(district)]
+lepto$V1 = NULL
+lepto$year = lyear(lepto$date_end)
+lepto[year >= 2014, year2merge := year]
+lepto[year < 2014, year2merge := 2014]
+
+
+
+
+allpopdat[, district := norm_dist(district)]
+
+lepto = merge(lepto, allpopdat, by.x = c("district","year2merge"), by.y = c("district","year"), all=F)
+
+lepto[, rate_per_100k := (cases / poptot) * 1e5][]
+
+# ---- Optional: quality checks ----
+missing_pop <- lepto[is.na(poptot), unique(district)]
+if (length(missing_pop)) {
+  message("No population match for districts: ",
+          paste(sort(missing_pop), collapse = ", "))
+}
+# names(lepto)
+lepto$V1 = NULL
+lepto$url = NULL
+lepto$page = NULL
+lepto$method = NULL
+lepto = lepto[!is.na(district)]
+
+names(lepto)
+
+
+
+####################################################################################
+####################################################################################
+####################################################################################
+####################################################################################
+
+# link lepto with station data.
+
+wx_station_data = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/station_data/SriLanka_Weather_Dataset.csv", header=TRUE)
+
+head(wx_station_data)
+str(wx_station_data)
+
+wx_station_data[,.N,by=city][order(city)]
+wx_station_data[!city %in% lepto$district]
+
+
+
+# ?????? 0) Inputs ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+# data.tables you already have:
+#   - lepto:   columns at least district, date, cases   (date = Date/IDate)
+#   - wx_station_data: daily rows with cols 'time' (Date/IDate), 'latitude','longitude','city', and weather vars
+
+stopifnot(all(c("time","latitude","longitude","city") %in% names(wx_station_data)))
+if (!inherits(wx_station_data$time, "Date")) wx_station_data[, time := as.IDate(time)]
+
+lepto$date = lepto$date_start
+
+if (!inherits(lepto$date, "Date")) lepto[, date := as.IDate(date)]
+
+# ?????? 1) Download & read districts (ADM2) ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+gadm_zip <- "https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_LKA_shp.zip"
+tdir <- tempfile("lka_gadm41_"); dir.create(tdir)
+zipfile <- file.path(tdir, "gadm41_LKA_shp.zip")
+download.file(gadm_zip, destfile = zipfile, mode = "wb", quiet = TRUE)
+unzip(zipfile, exdir = tdir)
+adm2_shp <- list.files(tdir, pattern = "^gadm41_LKA_2\\.shp$", full.names = TRUE, recursive = TRUE)
+stopifnot(length(adm2_shp) == 1)
+
+districts_sf <- st_read(adm2_shp, quiet = TRUE)[, c("GID_2","NAME_1","NAME_2","geometry")]
+names(districts_sf) <- c("gid2","province","district","geometry")
+
+# normalize district names to match your lepto/pop conventions
+norm_dist <- function(x) {
+  x1 <- str_squish(str_to_title(x))
+  x1 <- str_replace_all(x1, "Nuwara Eliya", "Nuwara-Eliya")
+  x1
+}
+districts_sf$district <- norm_dist(districts_sf$district)
+
+# ?????? 2) Assign each station/city to a district via spatial join ?????????????????????????????????????????????
+# Use unique (city, lat, lon) to build a station lookup -> district
+stations_lu <- unique(wx_station_data[, .(city, latitude, longitude)])
+stations_sf <- st_as_sf(stations_lu, coords = c("longitude","latitude"), crs = 4326, remove = FALSE)
+stations_sf <- st_transform(stations_sf, st_crs(districts_sf))
+districts_sf <- st_make_valid(districts_sf)
+
+# spatial join (point-in-polygon)
+stations_joined <- st_join(stations_sf, districts_sf["district"], left = TRUE)
+
+# build a lookup table city -> district (via geometry)
+city_to_district <- as.data.table(stations_joined)[, .(city, latitude, longitude, district)]
+# If any city falls outside polygons (shouldn't happen), flag it:
+unmatched_cities <- city_to_district[is.na(district)]
+if (nrow(unmatched_cities)) {
+  warning("Some station cities did not match a district: ",
+          paste(unique(unmatched_cities$city), collapse = ", "))
+}
+
+# ?????? 3) Attach district to every daily weather row and aggregate ?????????????????????????????????????????????
+wx_with_dist <- merge(wx_station_data, city_to_district,
+                      by = c("city","latitude","longitude"), all.x = TRUE)
+
+# sanity check: which districts in lepto have no weather after mapping?
+no_wx_for_lepto <- setdiff(unique(lepto$district), unique(wx_with_dist$district))
+if (length(no_wx_for_lepto)) {
+  message("Districts in lepto but no mapped weather: ",
+          paste(no_wx_for_lepto, collapse = ", "))
+}
+
+# Decide aggregation: for district-level *areal* weather, use mean/median across stations in district.
+# (Summing precipitation across stations is usually incorrect; use mean for areal average.)
+# Customize the variable set as needed:
+weather_means <- c("temperature_2m_max","temperature_2m_min","temperature_2m_mean",
+                   "apparent_temperature_max","apparent_temperature_min","apparent_temperature_mean",
+                   "shortwave_radiation_sum","precipitation_sum","rain_sum",
+                   "precipitation_hours","windspeed_10m_max","windgusts_10m_max",
+                   "et0_fao_evapotranspiration")
+
+keep_cols <- c("district","time", weather_means)
+wx_keep <- wx_with_dist[, intersect(names(wx_with_dist), keep_cols), with = FALSE]
+
+# aggregate to district × day (mean; switch to median if you prefer robustness)
+wx_dist_daily <- wx_keep[
+  , lapply(.SD, mean, na.rm = TRUE), by = .(district, date = time),
+  .SDcols = setdiff(names(wx_keep), c("district","time"))
+]
+
+# ?????? 4) Harmonize district names and join to lepto ????????????????????????????????????????????????????????????????????????????????????
+lepto[, district := norm_dist(district)]
+wx_dist_daily[, district := norm_dist(district)]
+
+# (Optional special admin handling: Kalmunai is in Ampara; if it ever appears as a district in lepto)
+lepto[district == "Kalmunai", district := "Ampara"]
+
+# Join weather to lepto by district + date
+setkey(lepto, district, date)
+setkey(wx_dist_daily, district, date)
+lepto_weather <- wx_dist_daily[lepto]  # left join onto lepto; keeps all lepto rows
+
+# ?????? 5) Quick diagnostics ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+if (anyNA(lepto_weather$temperature_2m_mean)) {
+  miss <- lepto_weather[is.na(temperature_2m_mean), .N, by = district][order(-N)]
+  message("Lepto rows lacking matched weather (top):")
+  print(head(miss, 10))
+}
+
+# ?????? 6) Result ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+# 'lepto_weather' now has district, date, cases (+ your other lepto fields) and the district-aggregated daily weather.
+lepto = lepto_weather
+
+####################################################################################
+####################################################################################
+####################################################################################
+####################################################################################
+
+# MERGE WITH LAND COVER DATA.
+
+# ?????? 0) Inputs ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+lc_path <- "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/SriLanka_Landcover_2018/SriLanka_Landcover_2018.tif"
+r <- rast(lc_path)
+
+# Define your class legend (update if your TIFF uses different codes)
+class_map <- data.table(
+  code  = c(10,20,30,40,50,60,70,80,90,255),
+  label = c("Water","BuiltUp","Cropland","Forest","Shrub",
+            "Grass","Bare","Wetland","Paddy","NoData")
+)
+
+# ?????? 1) Get the correct **districts (ADM2)** ???????????????????????????????????????????????????????????????????????????????????????????????????
+gadm_zip <- "https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_LKA_shp.zip"
+gadm_zip <- "https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_LKA_shp.zip"
+
+tdir <- tempfile("lka_gadm41_"); dir.create(tdir)
+zipfile <- file.path(tdir, "gadm41_LKA_shp.zip")
+download.file(gadm_zip, destfile = zipfile, mode = "wb", quiet = TRUE)
+unzip(zipfile, exdir = tdir)
+adm2_shp <- list.files(tdir, pattern = "^gadm41_LKA_2\\.shp$", full.names = TRUE, recursive = TRUE)
+
+districts_sf <- st_read(adm2_shp, quiet = TRUE)[, c("GID_2","NAME_1","NAME_2","geometry")]
+names(districts_sf) <- c("gid2","district","subdistrict","geometry")
+
+
+# plot(districts_sf)
+# districts_sf_dt = as.data.table(districts_sf)
+
+# Normalize names to your convention
+norm_dist <- function(x) {
+  x1 <- str_squish(str_to_title(x))
+  x1 <- str_replace_all(x1, "Nuwara Eliya", "Nuwara-Eliya")
+  x1
+}
+districts_sf$district <- norm_dist(districts_sf$district)
+
+# Dissolve all polygons into province-level geometries
+districts_sf <- districts_sf %>%
+  group_by(district) %>%
+  summarise(geometry = st_union(geometry), .groups = "drop")
+
+# # Check result
+# print(districts_sf)
+# 
+# # Plot to verify
+# plot(st_geometry(districts_sf), col = rainbow(nrow(districts_sf)), border = "black")
+
+
+
+
+# ?????? 2) Make sure CRS match
+districts_sf <- st_transform(districts_sf, crs(r))
+
+# ?????? 3) Define extraction function
+freq_fun <- function(values, coverage_fraction) {
+  dt <- data.table(code = values, w = coverage_fraction)
+  dt <- dt[!is.na(code)]
+  if (nrow(dt) == 0) return(data.frame(code = integer(), prop = numeric()))
+  dt <- dt[, .(w = sum(w, na.rm = TRUE)), by = code]
+  dt[, prop := w / sum(w)]
+  as.data.frame(dt[, .(code, prop)])
+}
+
+# ?????? 4) Run extraction
+lc_list <- exact_extract(r, districts_sf, 
+                         fun = function(values, coverage_fraction) {
+                           list(freq_fun(values, coverage_fraction))
+                         },
+                         progress = TRUE)
+
+# Now it's a list of data.frames ??? bind safely
+lc_by_dist <- rbindlist(lc_list, idcol = "dist_idx")
+lc_by_dist[, district := districts_sf$district[dist_idx]]
+lc_by_dist[, dist_idx := NULL]
+
+# jj::countna(lc_by_dist)
+
+# Drop NoData (e.g., 255) before going wide (or keep and drop later)
+lc_by_dist <- lc_by_dist[code %in% class_map$code]
+
+# Attach labels and go wide to district × class
+lc_by_dist <- merge(lc_by_dist, class_map, by = "code", all.x = TRUE)
+lc_wide <- dcast(lc_by_dist, district ~ label, value.var = "prop", fill = 0)
+
+# Optional: re-normalize rows to ensure sums = 1 after dropping NoData
+prop_cols <- setdiff(names(lc_wide), "district")
+row_sums <- lc_wide[, rowSums(.SD), .SDcols = prop_cols]
+lc_wide[, (prop_cols) := lapply(.SD, function(z) ifelse(row_sums > 0, z / row_sums, 0)), .SDcols = prop_cols]
+
+# Inspect
+lc_wide[order(district)][1:10]
+
+
+lepto = merge(lepto, lc_wide, by = c("district"))
+
+######################################################################
+######################################################################
+######################################################################
+######################################################################
+
+lepto[, .(rate = mean(rate_per_100k, na.rm = TRUE),
+          paddy = mean(Paddy),
+          wetland = mean(Wetland),
+          built = mean(BuiltUp)), 
+      by = district]
+
+num_vars <- c("rate_per_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
+cor_mat <- cor(lepto[, ..num_vars], use = "complete.obs")
+cor_mat["rate_per_100k",]
+
+
+
+
+lepto[, high_paddy := Paddy > median(Paddy, na.rm=TRUE)]
+lepto[, .(mean_rate = mean(rate_per_100k, na.rm=TRUE)), by = high_paddy]
+
+
+m1 <- lm(rate_per_100k ~ Paddy + Wetland + BuiltUp + Water, data = lepto)
+summary(m1)
+
+m1 <- lm(rate_per_100k ~ precipitation_hours + temperature_2m_max + temperature_2m_min, data = lepto)
+summary(m1)
+
+
+countna(lepto)
+
+
+lepto[district == "Ampara" & year == 2008][order(date_start),
+                                           .(date_start, cases, new_cases = c(cases[1], diff(cases)))]
+
+# Step 1: enforce monotonic cumulative cases
+lepto[, cases_monotonic := cummax(cases), by = .(district, year)]
+
+# Step 2: compute weekly incident cases
+lepto[, new_cases := c(cases_monotonic[1], diff(cases_monotonic)), 
+      by = .(district, year)]
+
+# Step 3: optional check for negatives
+summary(lepto$new_cases)  # should all be >= 0
+
+
+
+
+
+######################################################################
+######################################################################
+######################################################################
+######################################################################
+
+
+
+######################################################################
+######################################################################
+######################################################################
+######################################################################
+
+
+
+
 fig_dir <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/figures/"
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -393,108 +886,6 @@ latest <- max(panel$date_end, na.rm = TRUE)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-# Summary: Base R plots (no ggplot). Saves high-DPI PNGs via ragg::agg_png.
-# Inputs: WER_leptospirosis_counts.csv (columns: district, date_end, A/cases)
-# Outputs: PNGs in outputs/figures/
-
-suppressPackageStartupMessages({
-  library(data.table)
-})
-
-if (!requireNamespace("ragg", quietly = TRUE)) {
-  stop("Package 'ragg' is required for agg_png output. Please install.packages('ragg').")
-}
-
-setDTthreads(8)
-
-# ---------------- Paths ----------------
-# -------- Paths --------
-in_path <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/WER_leptospirosis_counts.csv"
-fig_dir <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/figures/"
-
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
-
-# ---------------- Load & standardize ----------------
-lep_raw <- fread(in_path)
-
-# prefer 'A' (weekly) if present; else 'cases'
-if ("A" %in% names(lep_raw) && !"cases" %in% names(lep_raw)) {
-  setnames(lep_raw, "A", "cases")
-} else if ("A" %in% names(lep_raw) && "cases" %in% names(lep_raw)) {
-  lep_raw[, cases := ifelse(!is.na(A), as.integer(A), as.integer(cases))]
-}
-keep <- intersect(names(lep_raw), c("district","date_end","cases","url"))
-lep <- lep_raw[, ..keep]
-lep[, date_end := as.Date(date_end)]
-lep[, cases    := as.integer(cases)]
-lep <- lep[!is.na(date_end) & !is.na(cases) & nzchar(district)]
-
-# Canonicalize district names (defensive)
-canon <- c("Colombo","Gampaha","Kalutara","Kandy","Matale","Nuwara Eliya",
-           "Galle","Matara","Hambantota","Jaffna","Kilinochchi","Mannar",
-           "Vavuniya","Mullaitivu","Batticaloa","Ampara","Trincomalee",
-           "Kurunegala","Puttalam","Anuradhapura","Polonnaruwa","Badulla",
-           "Monaragala","Ratnapura","Kegalle","Kalmunai")
-match_idx <- match(tolower(lep$district), tolower(canon))
-lep[, district := ifelse(is.na(match_idx), district, canon[match_idx])]
-
-# Aggregate in case of duplicates per district/week
-lep_week <- lep[, .(cases = sum(cases, na.rm = TRUE)), by = .(district, date_end)]
-
-# Complete weekly grid
-weeks_seq <- seq(min(lep_week$date_end, na.rm = TRUE),
-                 max(lep_week$date_end, na.rm = TRUE), by = "7 days")
-panel <- CJ(district = sort(unique(lep_week$district)),
-            date_end = weeks_seq, unique = TRUE)
-panel <- lep_week[panel, on = .(district, date_end)]
-panel[is.na(cases), cases := 0L]
-
-# Time features (base R ISO week/year)
-panel[, `:=`(
-  iso_week = as.integer(strftime(date_end, "%V")),  # ISO week
-  iso_year = as.integer(strftime(date_end, "%G")),  # ISO year
-  year     = as.integer(format(date_end, "%Y"))
-)]
-setorder(panel, district, date_end)
-
-# Rolling metrics (data.table fast rolling)
-panel[, `:=`(
-  ma4   = frollmean(cases,  4, align = "right", na.rm = TRUE),
-  ma12  = frollmean(cases, 12, align = "right", na.rm = TRUE),
-  sum12 = frollsum(cases,  12, align = "right", na.rm = TRUE)
-), by = district]
-
-# YoY deltas: same ISO week, previous ISO year
-prev <- panel[, .(district, iso_week, iso_year, cases_prev = cases)]
-prev[, iso_year := iso_year + 1L]
-panel <- merge(panel, prev,
-               by = c("district","iso_week","iso_year"),
-               all.x = TRUE, sort = FALSE)
-panel[, `:=`(
-  yoy_abs = cases - cases_prev,
-  yoy_pct = ifelse(!is.na(cases_prev) & cases_prev > 0,
-                   100 * (cases - cases_prev) / cases_prev, NA_real_)
-)]
-
-# National weekly series
-nat <- panel[, .(cases = sum(cases)), by = date_end][order(date_end)]
-nat[, `:=`(
-  ma4  = frollmean(cases,  4, align = "right"),
-  ma12 = frollmean(cases, 12, align = "right")
-)]
-
-latest <- max(panel$date_end, na.rm = TRUE)
 
 # Small helpers
 fmt_int <- function(x) format(as.integer(x), big.mark = ",")
