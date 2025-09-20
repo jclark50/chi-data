@@ -15,6 +15,7 @@ library(exactextractr)
 library(arrow)
 
 
+library(stringr)
 
 ##########################################
 # # 0) CONFIG
@@ -57,8 +58,8 @@ VAR_WBGT10    <- "wbgt_scaled10_degC"
 VAR_WIND10    <- "wind2m_scaled10_ms1"
 
 
-VAR_MTPR = 'mtpr_scaled10_kg2s1'
-VAR_TP = 'tp_scaled10_m'
+VAR_MTPR = 'mtpr' #_scaled10_kg2s1'
+VAR_TP = 'tp' #_scaled10_m'
 
 
 VAR_LATIDX    <- "lat_idx_x4"
@@ -152,8 +153,8 @@ read_one_year_raw <- function(yr) {
       wbgt = round(cast(!!sym(VAR_WBGT10),  float64()) / 10, 1),
       wind = round(cast(!!sym(VAR_WIND10),  float64()) / 10, 1),
 
-      mtpr = round(cast(!!sym(VAR_MTPR),  float64()) / 10, 1)*3600, # already in mm # mean_total_precipitation_rate
-      tp = round(cast(!!sym(VAR_TP),  float64()) / 10, 1)*1000, # convert m to mm # total precipitation
+      mtpr = (cast(!!sym(VAR_MTPR),  float64())), # *3600, # already in mm # mean_total_precipitation_rate
+      tp = (cast(!!sym(VAR_TP),  float64())), # *1000, # convert m to mm # total precipitation
       
       rh   = exp((17.62 * td) / (243.12 + td) - (17.62 * ta) / (243.12 + ta)) * 100,
       es   = 0.6108 * exp(17.27 * ta / (ta + 237.3)),
@@ -166,6 +167,18 @@ read_one_year_raw <- function(yr) {
     collect()
   # 
   setDT(dt)
+  
+  # range(dt$mtpr*3600)
+  # # 
+  # range(dt$tp*1000)
+  # # dt[tp != mtpr]
+  # 
+  
+  dt[tp < 0, tp := 0]
+  dt[mtpr < 0, mtpr := 0]
+  
+  
+  
   # enforce integer indices
   setnames(dt, c(VAR_LATIDX, VAR_LONIDX), c("lat_idx_x4","lon_idx_x4"))
   dt[, `:=`(lat_idx_x4 = as.integer(lat_idx_x4)/4,
@@ -231,8 +244,6 @@ get_lka_districts <- function() {
   return(districts_sf)
 
 }
-
-library(stringr)
 
 districts_sf_wgs84 <- get_lka_districts()
 # districts_sf_m <- st_transform(districts_sf_wgs84, CRS_AREA)  # for areas
@@ -397,37 +408,6 @@ compute_cell_district_weights <- function(cell_sf_m, districts_sf_m) {
 
 weights <- compute_cell_district_weights(cell_sf_m, districts_sf_m)
 
-
-# ?????? 4) Cell-day statistics from your hourly table ?????????????????????????????????????????????????????????????????????????????????????????????
-# read_one_year_raw(yr) must return:
-#   lat_idx_x4, lon_idx_x4 (int), date (Date, local or UTC-your function makes local),
-#   hour, and variables: ta, td, wbgt, wind, rh, vpd, ssrd_MJ
-# cell_day_stats <- function(dt_hourly) {
-#   if (nrow(dt_hourly) == 0) return(dt_hourly)
-#   vars <- c("ta","td","wbgt","wind","rh","vpd","ssrd_MJ")
-#   # per cell per day stats
-#   # agg <- dt_hourly[, c(
-#   #   lapply(.SD, function(x) mean(x, na.rm = TRUE)),  # daily mean
-#   #   lapply(.SD, function(x) min(x,  na.rm = TRUE)),  # daily min
-#   #   lapply(.SD, function(x) max(x,  na.rm = TRUE))   # daily max
-#   # ),
-#   # by = .(lat_idx_x4, lon_idx_x4, date),
-#   # .SDcols = vars]
-#   agg <- dt_hourly[, c(
-#     # daily mean/min/max and name them now
-#     setNames(lapply(.SD, \(x) mean(x, na.rm = TRUE)), paste0(vars, "_mean")),
-#     setNames(lapply(.SD, \(x) min(x,  na.rm = TRUE)), paste0(vars, "_min")),
-#     setNames(lapply(.SD, \(x) max(x,  na.rm = TRUE)), paste0(vars, "_max"))
-#   ), by = .(lat_idx_x4, lon_idx_x4, date), .SDcols = vars]
-# 
-#   # Rename columns to *_mean/_min/_max
-#   setnames(agg,
-#            old = names(agg)[-(1:3)],
-#            new = c(paste0(vars, "_mean"),
-#                    paste0(vars, "_min"),
-#                    paste0(vars, "_max")))
-#   agg
-# }
 cell_day_stats <- function(dt_hourly) {
   if (nrow(dt_hourly) == 0) return(dt_hourly)
   
@@ -487,8 +467,8 @@ district_day_from_cell_day <- function(cell_daily, weights) {
     
     as.list(c(
       means, mins, maxs,
-      tp_sum_aw = tp_aw,
-      mtpr_sum_aw = mtpr_aw
+      tp_sum = tp_aw,
+      mtpr_sum = mtpr_aw
     ))
   },
   by = .(district, date)
@@ -517,24 +497,24 @@ summarize_years_area_weighted <- function(years) {
 }
 
 jj::timed('start')
-years< - 2006:2024
+years <- 2006:2024
 out <- summarize_years_area_weighted(years)
 jj::timed('end')
 
+# range(out$tp_sum)
+# range(out$mtpr_sum)
+# out[,.N,by=district][order(district)]
+
+
 fwrite(out, "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/srilanka_district_daily_era5_areawt.csv")
-# out[district == 'Addalachchenai']
 
-
-out[,.N,by=district][order(district)]
 
 sf_use_s2(TRUE)
 
-
-
-
-
-
-
+#############################################################################
+#############################################################################
+#############################################################################
+#############################################################################
 # ================== WEEKLY WEATHER FEATURE PIPELINE ==========================
 # Robust weekly aggregation for district×week epidemiology
 # Author: you :)
@@ -586,6 +566,11 @@ CFG <- list(
   HOT_TMAX = 32,     # °C threshold for "hot day"
   WET_MM   = 10,     # mm/day threshold for wet day (for both tp_sum & mtpr_sum)
   
+  # range(daily_dt$mtpr,na.rm=TRUE)
+  # range(daily_dt$tp_sum,na.rm=TRUE)
+  # range(daily_dt$tp_mm,na.rm=TRUE)
+  
+  
   # lags/rolling windows (in weeks)
   MAX_LAG_WEEKS = 6,
   ROLL_WINDOWS  = c(2, 4),
@@ -603,6 +588,54 @@ CFG <- list(
   # coverage rule
   MIN_DAYS_PER_WEEK = 5
 )
+
+
+
+# --- helpers you can place above the function ---
+mean_na <- function(x) if (all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE)
+sum_na  <- function(x) if (all(is.na(x))) NA_real_ else sum(x, na.rm = TRUE)
+q_na    <- function(x, p) if (all(is.na(x))) NA_real_ else as.numeric(quantile(x, p, na.rm = TRUE))
+
+# partial rolling with minimum observations required
+roll_mean_partial <- function(x, k, min_obs = 1L) {
+  n <- length(x)
+  out <- rep(NA_real_, n)
+  # data.table::frollmean is fast but strict; do manual partial
+  s <- zoo::rollapplyr(x, k, function(z) if (sum(!is.na(z)) >= min_obs) mean(z, na.rm = TRUE) else NA_real_, fill = NA)
+  as.numeric(s)
+}
+roll_sum_partial <- function(x, k, min_obs = 1L) {
+  n <- length(x)
+  zoo::rollapplyr(x, k, function(z) if (sum(!is.na(z)) >= min_obs) sum(z, na.rm = TRUE) else NA_real_, fill = NA)
+}
+
+# robust z-score with MAD fallback; if scale ~0 => return 0 (not NA)
+zscore_robust <- function(x) {
+  x <- as.numeric(x)
+  if (all(is.na(x))) return(rep(NA_real_, length(x)))
+  mu <- mean(x, na.rm = TRUE)
+  sdv <- sd(x, na.rm = TRUE)
+  if (!is.finite(sdv) || sdv <= 1e-8) {
+    madv <- mad(x, constant = 1.4826, na.rm = TRUE)
+    if (!is.finite(madv) || madv <= 1e-8) return(rep(0, length(x)))
+    return((x - mu) / madv)
+  } else {
+    return((x - mu) / sdv)
+  }
+}
+
+# ratio to normal with tolerant denominator
+pct_of_normal <- function(x, clim, eps = 1e-6) {
+  out <- x / pmax(clim, eps)
+  # if both 0, define as 1 (exactly at normal)
+  out[x == 0 & clim == 0] <- 1
+  out
+}
+
+
+
+CFG$MIN_DAYS_PER_WEEK <- 1
+
 
 
 # --------------------- Main weekly aggregation function ----------------------
@@ -692,9 +725,14 @@ weekly_weather_features <- function(daily_dt, weeks_dt, cfg = CFG) {
       precip_tp_sum_week   = sum_na(tp),
       precip_mtpr_sum_week = sum_na(mtpr),
       
+      
+      # precipitation weekly sums  (FORCE DOUBLE!)
+      precip_tp_sum_week   = sum(tp,   na.rm = TRUE) + 0.0,
+      precip_mtpr_sum_week = sum(mtpr, na.rm = TRUE) + 0.0,
+      
       # wet days (>= threshold) - coerce to numeric for type stability
-      wet_days_ge10_tp     = as.numeric(sum(tp   >= cfg$WET_MM, na.rm = TRUE)),
-      wet_days_ge10_mtpr   = as.numeric(sum(mtpr >= cfg$WET_MM, na.rm = TRUE)),
+      wet_days_ge10_tp     = as.numeric(sum(tp*1000   >= cfg$WET_MM, na.rm = TRUE)),
+      wet_days_ge10_mtpr   = as.numeric(sum(mtpr*1000 >= cfg$WET_MM, na.rm = TRUE)),
       
       # rolling 3-day max within week
       max3d_tp             = max3_tp,
@@ -717,34 +755,40 @@ weekly_weather_features <- function(daily_dt, weeks_dt, cfg = CFG) {
     res
   }, by = .(district, week_id, date_start, date_end, year, week_of_year)]
   
-  # 
-  # # Lags & rolling windows (past-only) for selected vars
+  
+  
+  # ----------------- LAGS & ROLLING WINDOWS (partial allowed) ------------------
   setorder(agg, district, date_end)
+  
   LAG_VARS <- intersect(
     c("precip_tp_sum_week","precip_mtpr_sum_week","rh_mean_week","tmax_mean","vpd_mean_week"),
     names(agg)
   )
+  
+  # lags: NA for first L weeks (expected)
   for (v in LAG_VARS) {
-    # Lags
     for (L in seq_len(cfg$MAX_LAG_WEEKS)) {
       agg[, paste0(v, "_lag", L) := shift(get(v), L), by = district]
     }
-    # Rolling windows (include current week)
-    for (k in cfg$ROLL_WINDOWS) {
-      agg[, paste0(v, "_roll", k, "w_mean") :=
-            frollmean(get(v), k, align = "right", na.rm = TRUE), by = district]
-      agg[, paste0(v, "_roll", k, "w_sum")  :=
-            frollsum(get(v),  k, align = "right", na.rm = TRUE), by = district]
-    }
   }
   
-  # EWAP (antecedent) for both precip metrics
+  # rolling windows with partial fills (require >= min_obs)
+  min_obs_2w <- 1L  # allow 1 week out of 2
+  min_obs_4w <- 2L  # require at least 2 of 4
+  for (v in LAG_VARS) {
+    agg[, paste0(v, "_roll2w_mean") := roll_mean_partial(get(v), k = 2, min_obs = min_obs_2w), by = district]
+    agg[, paste0(v, "_roll2w_sum")  := roll_sum_partial (get(v), k = 2, min_obs = min_obs_2w), by = district]
+    agg[, paste0(v, "_roll4w_mean") := roll_mean_partial(get(v), k = 4, min_obs = min_obs_4w), by = district]
+    agg[, paste0(v, "_roll4w_sum")  := roll_sum_partial (get(v), k = 4, min_obs = min_obs_4w), by = district]
+  }
+  
+  # ----------------- EWAP (antecedent) with NA->0 for lags --------------------
   K <- cfg$EWAP_K; a <- cfg$EWAP_ALPHA
   if ("precip_tp_sum_week" %in% names(agg)) {
     agg[, ewap_tp := {
       x <- precip_tp_sum_week
       ew <- x
-      for (k in 1:K) ew <- ew + (a^k) * shift(x, k)
+      for (k in 1:K) ew <- ew + (a^k) * data.table::shift(x, k, fill = 0)
       ew
     }, by = district]
   }
@@ -752,34 +796,108 @@ weekly_weather_features <- function(daily_dt, weeks_dt, cfg = CFG) {
     agg[, ewap_mtpr := {
       x <- precip_mtpr_sum_week
       ew <- x
-      for (k in 1:K) ew <- ew + (a^k) * shift(x, k)
+      for (k in 1:K) ew <- ew + (a^k) * data.table::shift(x, k, fill = 0)
       ew
     }, by = district]
   }
   
-  # Weekly climatology & anomalies (district × week_of_year)
+  # ----------------- CLIMATOLOGY / ANOMALIES / % NORMAL -----------------------
   CLIM_VARS <- intersect(cfg$ANOMALY_VARS, names(agg))
   if (length(CLIM_VARS)) {
     clim <- agg[, lapply(.SD, mean_na), by = .(district, week_of_year), .SDcols = CLIM_VARS]
     setnames(clim, CLIM_VARS, paste0(CLIM_VARS, "_clim"))
+    
     agg <- clim[agg, on = .(district, week_of_year)]
+    
     for (v in CLIM_VARS) {
       vc <- paste0(v, "_clim")
+      # anomaly
       agg[, paste0(v, "_anom") := get(v) - get(vc)]
-      agg[, paste0(v, "_pct_normal") := ifelse(get(vc) > 0, get(v)/get(vc), NA_real_)]
+      # percent-of-normal (tolerant)
+      agg[, paste0(v, "_pct_normal") := pct_of_normal(get(v), get(vc), eps = 1e-6)]
     }
   }
   
-  # Optional within-district z-scores
+  # ----------------- Z-SCORES (robust, by district) ---------------------------
   ZV <- intersect(cfg$ZSCORE_VARS, names(agg))
   if (length(ZV)) {
     for (v in ZV) {
-      agg[, paste0(v, "_z") := {
-        xv <- get(v); mu <- mean(xv, na.rm = TRUE); sdv <- sd(xv, na.rm = TRUE)
-        ifelse(is.finite(sdv) & sdv > 0, (xv - mu)/sdv, NA_real_)
-      }, by = district]
+      agg[, paste0(v, "_z") := zscore_robust(get(v)), by = district]
     }
   }
+  
+  # ----------------- OPTIONAL: don't hard-mask low-coverage --------------------
+  # Keep values but retain coverage for filtering downstream.
+  # If you *must* mask, do a softer rule (e.g., only mask extremes):
+  # agg[n_days_week < cfg$MIN_DAYS_PER_WEEK & !is.na(n_days_week),
+  #     (setdiff(names(agg), c("district","week_id","date_start","date_end","year","week_of_year","n_days_week"))) := NA_real_]
+  
+  
+  # # 
+  # # 
+  # # # 
+  # # # # Lags & rolling windows (past-only) for selected vars
+  # # setorder(agg, district, date_end)
+  # # LAG_VARS <- intersect(
+  # #   c("precip_tp_sum_week","precip_mtpr_sum_week","rh_mean_week","tmax_mean","vpd_mean_week"),
+  # #   names(agg)
+  # # )
+  # # for (v in LAG_VARS) {
+  # #   # Lags
+  # #   for (L in seq_len(cfg$MAX_LAG_WEEKS)) {
+  # #     agg[, paste0(v, "_lag", L) := shift(get(v), L), by = district]
+  # #   }
+  # #   # Rolling windows (include current week)
+  # #   for (k in cfg$ROLL_WINDOWS) {
+  # #     agg[, paste0(v, "_roll", k, "w_mean") :=
+  # #           frollmean(get(v), k, align = "right", na.rm = TRUE), by = district]
+  # #     agg[, paste0(v, "_roll", k, "w_sum")  :=
+  # #           frollsum(get(v),  k, align = "right", na.rm = TRUE), by = district]
+  # #   }
+  # # }
+  # # 
+  # # # EWAP (antecedent) for both precip metrics
+  # # K <- cfg$EWAP_K; a <- cfg$EWAP_ALPHA
+  # # if ("precip_tp_sum_week" %in% names(agg)) {
+  # #   agg[, ewap_tp := {
+  # #     x <- precip_tp_sum_week
+  # #     ew <- x
+  # #     for (k in 1:K) ew <- ew + (a^k) * shift(x, k)
+  # #     ew
+  # #   }, by = district]
+  # # }
+  # # if ("precip_mtpr_sum_week" %in% names(agg)) {
+  # #   agg[, ewap_mtpr := {
+  # #     x <- precip_mtpr_sum_week
+  # #     ew <- x
+  # #     for (k in 1:K) ew <- ew + (a^k) * shift(x, k)
+  # #     ew
+  # #   }, by = district]
+  # # }
+  # # 
+  # # # Weekly climatology & anomalies (district × week_of_year)
+  # # CLIM_VARS <- intersect(cfg$ANOMALY_VARS, names(agg))
+  # # if (length(CLIM_VARS)) {
+  # #   clim <- agg[, lapply(.SD, mean_na), by = .(district, week_of_year), .SDcols = CLIM_VARS]
+  # #   setnames(clim, CLIM_VARS, paste0(CLIM_VARS, "_clim"))
+  # #   agg <- clim[agg, on = .(district, week_of_year)]
+  # #   for (v in CLIM_VARS) {
+  # #     vc <- paste0(v, "_clim")
+  # #     agg[, paste0(v, "_anom") := get(v) - get(vc)]
+  # #     agg[, paste0(v, "_pct_normal") := ifelse(get(vc) > 0, get(v)/get(vc), NA_real_)]
+  # #   }
+  # # }
+  # # 
+  # # Optional within-district z-scores
+  # ZV <- intersect(cfg$ZSCORE_VARS, names(agg))
+  # if (length(ZV)) {
+  #   for (v in ZV) {
+  #     agg[, paste0(v, "_z") := {
+  #       xv <- get(v); mu <- mean(xv, na.rm = TRUE); sdv <- sd(xv, na.rm = TRUE)
+  #       ifelse(is.finite(sdv) & sdv > 0, (xv - mu)/sdv, NA_real_)
+  #     }, by = district]
+  #   }
+  # }
   
   setorder(agg, district, date_end)
   agg[]
@@ -793,24 +911,67 @@ names(daily_dt) <- gsub("_aw","",names(daily_dt))
 names(daily_dt)
 weeks_dt <- unique(lepto[, .(district, date_start, date_end)])  # from your case data
 
+
 features_weekly <- weekly_weather_features(daily_dt, weeks_dt)
-names(features_weekly)
+
+range(daily_dt$tp_sum)
+range(features_weekly$precip_tp_sum_week) # should not be all 0!
+
+range(daily_dt$mtpr) # should not be all 0!
+range(features_weekly$precip_mtpr_sum_week) # should not be all 0!
+
+
+range(features_weekly$wet_days_ge10_tp) # should not be all 0!
+
+
+
+# 
+# names(features_weekly)[names(features_weekly) == 'precip_tp_sum_week_clim']
+# 
+# 
+# range(features_weekly$precip_tp_sum_week) # should not be all 0!
+# range(features_weekly$precip_tp_sum_week_clim) # should not be all 0!
+# 
+# # features_weekly$precip_mtpr_sum_week
+# 
+# # names(features_weekly)
+# countna(features_weekly)
+# 
+# features_weekly[,.N]
+# na.omit(features_weekly)[,.N]
+
+# features_weekly[, .(
+#   n = .N,
+#   miss_roll2 = sum(is.na(precip_tp_sum_week_roll2w_mean)),
+#   miss_roll4 = sum(is.na(precip_tp_sum_week_roll4w_mean)),
+#   miss_pct   = sum(is.na(precip_tp_sum_week_pct_normal)),
+#   miss_z_tmx = sum(is.na(tmax_mean_z))
+# ), by = district][order(-miss_pct)][1:10]
+
+
+# lepto$mpt
+
 
 
 fwrite(features_weekly, "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/srilanka_district_weekly_era5_areawt.csv")
 
-features_weekly = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/srilanka_district_weekly_era5_areawt.csv")
+#########
+#########
 
+features_weekly = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/srilanka_district_weekly_era5_areawt.csv")
+features_weekly = na.omit(features_weekly)
 
 # Join back onto your epi table (district×week outcomes):
 lepto_feat <- features_weekly[lepto, on = .(district, date_start, date_end)]
 # Now model with Poisson/NB using offset(log(poptot)) and the features you like.
 
-
-
-
-
-
+# 
+# names(features_weekly)[names(features_weekly) == 'precip_tp_sum_week_clim']
+# names(lepto_feat)[names(lepto_feat) == 'precip_tp_sum_week_clim']
+# 
+# 
+# 
+# 
 
 
 

@@ -399,6 +399,13 @@ results_all <- list()
 library(jj)
 outcome_cols = outcome_cols[outcome_cols %likeany% c("dengue","lepto")]
 
+outcome_cols = c("lepto","dengue")
+
+
+outcome_cols = 'lepto'
+
+
+
 for (y in outcome_cols) {
   message("=== OUTCOME: ", y, " ===")
   
