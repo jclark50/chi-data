@@ -80,7 +80,9 @@ write.csv(idx_fn, idx_path)
 
 
 
-fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/sri_lanka_WER_index.csv")
+
+idx_fn = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/sri_lanka_WER_index.csv")
+idx = idx_fn
 ######################################################################
 ######################################################################
 ######################################################################
@@ -164,11 +166,15 @@ canonize_district <- function(x) {
 library(data.table)
 library(stringr)
 
-Sys.setenv("JAVA_HOME"="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot")
+# Sys.setenv("JAVA_HOME"="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot")
 
+Sys.setenv("JAVA_HOME"="/usr/lib/jvm/java-17-openjdk-amd64")
+# install.packages("rJava")
 library(tabulapdf)
 library(tabulizerjars)
 
+# install.packages("tabulapdf")
+# install.packages("tabulizerjars")
 
 library(data.table)
 library(stringr)
@@ -385,7 +391,7 @@ extract_dengue_lepto_stream <- function(pdf_path, keep_total = FALSE, debug = FA
 
 # out <- try(extract_lepto_anylayout(u), silent = TRUE)
 jj::timed('start')
-atp=4
+atp=100
 allresults = list()
 for (atp in 156:nrow(idx)){
   currow = idx[atp]
@@ -425,15 +431,15 @@ allresults2 = rbindlist(allresults, fill=TRUE)
 saveRDS(allresults2, "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v3.Rds")
 
 
-
-alld = readRDS("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v3.Rds")
-countna(alld)
-
-alld = alld[district %in% lepto$district][order(date_end)]
-countna(alld)
-
-
-
+# 
+# alld = readRDS("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v3.Rds")
+# countna(alld)
+# 
+# alld = alld[district %in% lepto$district][order(date_end)]
+# countna(alld)
+# 
+# 
+# 
 
 # allresults[district == 'Colombo']
 # allresults2 = allresults[,c("district","cases","date_end")]
@@ -634,17 +640,32 @@ norm_dist <- function(x) {
 }
 
 
+
+
+
+lepto = readRDS("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v4.Rds")
+
+
+lepto[, date_mid := as.IDate(date_start + (as.integer(date_end - date_start) / 2))]
+
+
+lepto$year = lyear(lepto$date_start)
+# lepto$laprt
+
+
+
+
+
+
 # -------- Paths --------
-lepto_path <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/WER_leptospirosis_counts.csv"
+lepto_path <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v4.Rds"
 
-# ---- Build lookup + join ----
-# pop_lookup <- build_pop_lookup(allpopdat, reference_year = 2012L)
-
-
-lepto = fread(lepto_path)
+lepto = readRDS(lepto_path)
 lepto[, district := norm_dist(district)]
-lepto$V1 = NULL
-lepto$year = lyear(lepto$date_end)
+lepto[, date_mid := as.IDate(date_start + (as.integer(date_end - date_start) / 2))]
+lepto$lepto = lepto$leptospirosis_A
+lepto$dengue = lepto$dengue_A
+lepto$year = lyear(lepto$date_start)
 lepto[year >= 2014, year2merge := year]
 lepto[year < 2014, year2merge := 2014]
 
@@ -655,22 +676,23 @@ allpopdat[, district := norm_dist(district)]
 
 lepto = merge(lepto, allpopdat, by.x = c("district","year2merge"), by.y = c("district","year"), all=F)
 
-lepto[, rate_per_100k := (cases / poptot) * 1e5][]
-
-# ---- Optional: quality checks ----
-missing_pop <- lepto[is.na(poptot), unique(district)]
-if (length(missing_pop)) {
-  message("No population match for districts: ",
-          paste(sort(missing_pop), collapse = ", "))
-}
+lepto[, lepto_100k := (lepto / poptot) * 1e5]
+lepto[, dengue_100k := (dengue / poptot) * 1e5]
+# 
+# # ---- Optional: quality checks ----
+# missing_pop <- lepto[is.na(poptot), unique(district)]
+# if (length(missing_pop)) {
+#   message("No population match for districts: ",
+#           paste(sort(missing_pop), collapse = ", "))
+# }
+# # names(lepto)
+# lepto$V1 = NULL
+# lepto$url = NULL
+# lepto$page = NULL
+# lepto$method = NULL
+# lepto = lepto[!is.na(district)]
+# 
 # names(lepto)
-lepto$V1 = NULL
-lepto$url = NULL
-lepto$page = NULL
-lepto$method = NULL
-lepto = lepto[!is.na(district)]
-
-names(lepto)
 
 
 
@@ -681,7 +703,8 @@ names(lepto)
 
 # link lepto with station data.
 
-wx_station_data = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/station_data/SriLanka_Weather_Dataset.csv", header=TRUE)
+wx_station_data = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/station_data/SriLanka_Weather_Dataset.csv",
+                        header=TRUE)
 
 head(wx_station_data)
 str(wx_station_data)
@@ -699,7 +722,7 @@ wx_station_data[!city %in% lepto$district]
 stopifnot(all(c("time","latitude","longitude","city") %in% names(wx_station_data)))
 if (!inherits(wx_station_data$time, "Date")) wx_station_data[, time := as.IDate(time)]
 
-lepto$date = lepto$date_start
+lepto$date = lepto$date_mid
 
 if (!inherits(lepto$date, "Date")) lepto[, date := as.IDate(date)]
 
@@ -814,7 +837,6 @@ class_map <- data.table(
 
 # ?????? 1) Get the correct **districts (ADM2)** ???????????????????????????????????????????????????????????????????????????????????????????????????
 gadm_zip <- "https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_LKA_shp.zip"
-gadm_zip <- "https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_LKA_shp.zip"
 
 tdir <- tempfile("lka_gadm41_"); dir.create(tdir)
 zipfile <- file.path(tdir, "gadm41_LKA_shp.zip")
@@ -898,50 +920,94 @@ lepto = merge(lepto, lc_wide, by = c("district"))
 
 ######################################################################
 ######################################################################
-######################################################################
-######################################################################
 
-lepto[, .(rate = mean(rate_per_100k, na.rm = TRUE),
+# MERGE IN ERA5 DATA.
+
+# aggreated to district/daily in script "sri_lanka_daily_era5-district_level.R"
+
+era5 = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/srilanka_district_daily_era5_areawt.csv")
+
+
+lepto = merge(lepto, era5, by = c("date","district"))
+
+names(lepto)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+######################################################################
+######################################################################
+# lepto$lepto_100k
+
+lepto[, .(rate = mean(lepto_100k, na.rm = TRUE),
           paddy = mean(Paddy),
           wetland = mean(Wetland),
           built = mean(BuiltUp)), 
       by = district]
 
-num_vars <- c("rate_per_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
+num_vars <- c("lepto_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
 cor_mat <- cor(lepto[, ..num_vars], use = "complete.obs")
-cor_mat["rate_per_100k",]
+cor_mat["lepto_100k",]
+
+
+num_vars <- c("dengue_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
+cor_mat <- cor(lepto[, ..num_vars], use = "complete.obs")
+cor_mat["dengue_100k",]
 
 
 
+# 
+# lepto[, high_paddy := Paddy > median(Paddy, na.rm=TRUE)]
+# lepto[, .(mean_rate = mean(rate_per_100k, na.rm=TRUE)), by = high_paddy]
 
-lepto[, high_paddy := Paddy > median(Paddy, na.rm=TRUE)]
-lepto[, .(mean_rate = mean(rate_per_100k, na.rm=TRUE)), by = high_paddy]
 
-
-m1 <- lm(rate_per_100k ~ Paddy + Wetland + BuiltUp + Water, data = lepto)
+m1 <- lm(lepto_100k ~ Paddy + Wetland + BuiltUp + Water + Grass + Shrub, data = lepto)
 summary(m1)
 
-m1 <- lm(rate_per_100k ~ precipitation_hours + temperature_2m_max + temperature_2m_min, data = lepto)
+m1 <- lm(dengue_100k ~ Paddy + Wetland + BuiltUp + Water + Grass + Shrub, data = lepto)
 summary(m1)
 
+m1 <- lm(lepto_100k ~ temperature_2m_max + temperature_2m_min, data = lepto)
+summary(m1)
 
-countna(lepto)
-
-
-lepto[district == "Ampara" & year == 2008][order(date_start),
-                                           .(date_start, cases, new_cases = c(cases[1], diff(cases)))]
-
-# Step 1: enforce monotonic cumulative cases
-lepto[, cases_monotonic := cummax(cases), by = .(district, year)]
-
-# Step 2: compute weekly incident cases
-lepto[, new_cases := c(cases_monotonic[1], diff(cases_monotonic)), 
-      by = .(district, year)]
-
-# Step 3: optional check for negatives
-summary(lepto$new_cases)  # should all be >= 0
-
-
+# Remove obvious outliers/erroneous data points.
+# plot(lepto[district == 'Jaffna']$date_mid, lepto[district == 'Jaffna']$lepto_100k, type = 'l')
+# plot(lepto[district == 'Vavuniya']$date_mid, lepto[district == 'Vavuniya']$dengue_100k, type = 'l')
+lepto[district == 'Ampara' & dengue_100k > 80, dengue_100k := NA]
+lepto[district == 'Mullaitivu' & dengue_100k > 200, dengue_100k := NA]
+lepto[district == 'Kilinochchi' & dengue_100k > 200, dengue_100k := NA]
+lepto[district == 'Mannar' & dengue_100k > 200, dengue_100k := NA]
+lepto[district == 'Vavuniya' & year == 2020 & dengue_100k > 60, dengue_100k := NA]
 
 
 
@@ -957,7 +1023,7 @@ summary(lepto$new_cases)  # should all be >= 0
 ######################################################################
 ######################################################################
 
-
+lepto$cases = lepto$lepto_100k
 
 
 fig_dir <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/figures/"
@@ -982,8 +1048,8 @@ th <- theme_minimal(base_size = 12) +
         axis.title.y = element_text(margin = margin(r = 6)))
 
 # -------- 1) Load ??? standardize ??? weekly panel --------
-lep_raw <- fread(lepto_path)
-
+# lep_raw <- fread(lepto_path)
+lep_raw = lepto
 # Use weekly counts: prefer column A (weekly) if present; else 'cases'
 if ("A" %in% names(lep_raw) && !"cases" %in% names(lep_raw)) {
   setnames(lep_raw, "A", "cases")
@@ -1085,6 +1151,7 @@ legend("topleft",
        legend = c("Weekly cases","12-week MA","4-week MA"),
        col = c("#2C3E50","#E74C3C","#3498DB"), lwd = c(2.2,2.8,2.0), bty = "n")
 dev.off()
+berryFunctions::openFile(file.path(fig_dir, "P1_national_trend.png"))
 
 # ---------------- P2: Top 15 districts (latest week, horizontal bars) ----------------
 top15 <- panel[date_end == latest][order(-cases)][1:15]
@@ -1100,6 +1167,7 @@ grid(nx = NA, ny = NULL, col = "grey90"); box()
 text(x = rev(top15$cases), y = bp, labels = fmt_int(rev(top15$cases)),
      pos = 4, xpd = NA, cex = 0.9, offset = 0.4)
 dev.off()
+berryFunctions::openFile(file.path(fig_dir, "P2_top15_latest_week.png"))
 
 # ---------------- P3: Small multiples (top 6 by 52-week burden) ----------------
 top6 <- panel[date_end > (latest - 7*52),
@@ -1116,6 +1184,7 @@ for (d in top6) {
   lines(dt$date_end, dt$ma12, lwd = 2.6, col = "#E74C3C")
 }
 dev.off()
+berryFunctions::openFile(file.path(fig_dir, "P3_top6_last52_facets.png"))
 
 # ---------------- P4: Seasonality boxplots (ISO week) for top 8 ----------------
 top8 <- panel[, .(tot = sum(cases)), by = district][order(-tot)][1:8, district]
@@ -1131,6 +1200,7 @@ for (d in top8) {
   grid(nx = NA, ny = NULL, col = "grey90"); box()
 }
 dev.off()
+berryFunctions::openFile(file.path(fig_dir, "P4_seasonality_boxplots.png"))
 
 
 
@@ -1150,6 +1220,7 @@ grid(nx = NA, ny = NULL, col = "grey90"); box()
 text(x = rev(yoy$yoy_abs), y = bp, labels = rev(fmt_int(yoy$yoy_abs)),
      pos = ifelse(rev(yoy$yoy_abs) >= 0, 4, 2), xpd = NA, cex = 0.9, offset = 0.4)
 dev.off()
+berryFunctions::openFile(file.path(fig_dir, "P6_yoy_change_top15.png"))
 
 message("Saved plots to: ", normalizePath(fig_dir, winslash = "/"))
 
