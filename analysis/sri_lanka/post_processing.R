@@ -95,10 +95,9 @@ paths <- list(
   temp_dir      = file.path(CHI_LOCAL_WORK, "temp"),
   work_out      = file.path(CHI_LOCAL_WORK, "outputs"),
   # Source inputs (checked into repo)
-  midyear_pop   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/Mid-year_population_by_district_and_sex_2024.pdf"),
-  wx_stations   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/station_data/SriLanka_Weather_Dataset.csv"),
-  landcover_tif = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/SriLanka_Landcover_2018/SriLanka_Landcover_2018.tif"),
-  era5_daily    = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/srilanka_district_daily_era5_areawt.csv"),
+  midyear_pop   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs/Mid-year_population_by_district_and_sex_2024.pdf"),
+  wx_stations   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs/station_data/SriLanka_Weather_Dataset.csv"),
+  era5_daily    = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs/srilanka_district_daily_era5_areawt.csv"),
   fig_dir       = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/outputs/figures")
 )
 
@@ -239,12 +238,37 @@ wx_daily <- wx_keep[, lapply(.SD, mean, na.rm = TRUE),
                     by = .(district, date = time),
                     .SDcols = setdiff(names(wx_keep), c("district","time"))]
 
-################################################################################
-# 4) LAND COVER: DISTRICT PROPORTIONS ------------------------------------------
-################################################################################
-# SECTION GOAL: Use exactextractr to compute class proportions per district.
+###############################################################################
+# 4) LAND COVER ??? Download .RAR ??? Extract ??? Raster ------------------------------
+# GOAL:
+#   . Download Sri Lanka land-cover archive (.rar) from NODA
+#   . Extract into analysis/sri_lanka/SriLanka_Landcover_2018/
+#   . Load the extracted .tif with terra::rast()
+#
+# REQUIREMENTS (one-time per machine):
+#   . 7-Zip or unrar installed and accessible (script auto-detects common paths)
+#       - Windows: install 7-Zip (https://www.7-zip.org/)
+#       - macOS:   brew install p7zip
+#       - Ubuntu:  sudo apt-get install p7zip-full
+###############################################################################
 
-r <- rast(paths$landcover_tif)
+# Ensure the .rar archive is extracted into a fixed subdir
+rar_file <- file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs", "SriLanka_Landcover_2018.rar")
+lc_dir   <- file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs", "SriLanka_Landcover_2018")
+
+landcover_data_url = 'https://www.noda.ac.cn/en/knowledgehub/downloadAttachment?id=64257e8a29d1210627d613d3&type=DATASET'
+download.file(landcover_data_url, rar_file)
+
+
+if (!dir.exists(lc_dir) || !length(list.files(lc_dir, pattern = "\\.tif(f)?$", recursive = TRUE))) {
+  extract_rar(rar_file, lc_dir)
+}
+
+# Point terra to the extracted .tif (adjust name if different inside the RAR)
+tif_file <- list.files(lc_dir, pattern = "\\.tif(f)?$", full.names = TRUE, recursive = TRUE)[1]
+if (is.na(tif_file)) stop("No .tif found after extraction in: ", lc_dir)
+
+r <- rast(tif_file)
 
 # Dissolve to district and match raster CRS
 adm2_diss <- adm2 |>

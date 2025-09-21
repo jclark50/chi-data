@@ -111,10 +111,9 @@ paths <- list(
   temp_dir      = file.path(CHI_LOCAL_WORK, "temp"),
   work_out      = file.path(CHI_LOCAL_WORK, "outputs"),
   # Source inputs (checked into repo)
-  midyear_pop   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/Mid-year_population_by_district_and_sex_2024.pdf"),
-  wx_stations   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/station_data/SriLanka_Weather_Dataset.csv"),
-  landcover_tif = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/SriLanka_Landcover_2018/SriLanka_Landcover_2018.tif"),
-  era5_daily    = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/srilanka_district_daily_era5_areawt.csv"),
+  midyear_pop   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs/Mid-year_population_by_district_and_sex_2024.pdf"),
+  wx_stations   = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs/station_data/SriLanka_Weather_Dataset.csv"),
+  era5_daily    = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/inputs/srilanka_district_daily_era5_areawt.csv"),
   fig_dir       = file.path(CHI_GITHUB_ROOT, "analysis/sri_lanka/outputs/figures")
 )
 
