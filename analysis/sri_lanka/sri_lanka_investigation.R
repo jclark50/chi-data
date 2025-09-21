@@ -17,6 +17,46 @@ suppressPackageStartupMessages({
 })
 
 
+##########################################
+# # 0) CONFIG
+##########################################
+Sys.setenv("local_working_dir" = "C:/Users/jordan/Desktop/srilanka/")
+local_working_dir = Sys.getenv("local_working_dir")
+
+# ---- Load helper functions ----
+source(here("helpers", "helpers.R"))
+
+# ---- Configurable paths via .Renviron ----
+# In your ~/.Renviron or project .Renviron file, set:
+#   ERA5_MADAGASCAR=C:/Users/jordan/Google Drive/CHI-Data/era5_madagascar
+#   ERA5_STREAM=C:/Users/jordan/Google Drive/CHI-Data/madagascar_streamed
+#
+# # To check what R sees:
+# # Sys.getenv("ERA5_MADAGASCAR")
+# Sys.setenv("ERA5_SRILANKA" = "G:/My Drive/Duke/DGHI/data/era5/srilanka/")
+# era5_root <- Sys.getenv("ERA5_SRILANKA", unset = NA)
+# if (is.na(era5_root)) {
+#   stop("Environment variable ERA5_SRILANKA not set. Please edit your .Renviron.")
+#   # usethis::edit_r_environ("project")
+#   # Sys.setenv("ERA5_MADAGASCAR" = "G:/My Drive/Duke/DGHI/data/era5/")
+# }
+
+# Sys.setenv("ERA5_OUT" = "C:/Users/jordan/Desktop/srilanka/")
+# Sys.setenv("ERA5_OUT" = "C:/Users/jordan/Desktop/srilanka/stream")
+# out_root <- Sys.getenv("ERA5_OUT", unset = "C:/data/chi_outputs/srilanka")
+
+local_working_dir_out = file.path(local_working_dir, "outputs")
+dir.create(local_working_dir_out, recursive = TRUE, showWarnings = FALSE)
+
+
+##########################################
+##########################################
+
+
+##########################################
+##########################################
+
+
 parse_issue_from_filename_v34plus <- function(u) {
   f <- basename(u)
   
@@ -53,9 +93,9 @@ parse_issue_from_filename_v34plus <- function(u) {
   )
 }
 
-# Example usage:
-urls <- c("https://www.epid.gov.lk/storage/post/pdfs/en_68aca1e16f16d_Vol_52_no_23-english.pdf")
-parse_issue_from_filename_v34plus(urls)
+# # Example usage:
+# urls <- c("https://www.epid.gov.lk/storage/post/pdfs/en_68aca1e16f16d_Vol_52_no_23-english.pdf")
+# parse_issue_from_filename_v34plus(urls)
 
 # read_html
 wer_url= "https://www.epid.gov.lk/weekly-epidemiological-report"
@@ -71,18 +111,17 @@ pdfs = pdfs[2:length(pdfs)]
 
 
 # Build initial index from filenames
-idx_fn <- rbindlist(lapply(pdfs, parse_issue_from_filename_v34plus), fill = TRUE)
+idx <- rbindlist(lapply(pdfs, parse_issue_from_filename_v34plus), fill = TRUE)
 
-idx_path  <- "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/sri_lanka_WER_index.csv"
+idx_path  <- file.path(local_working_dir_out, "sri_lanka_WER_index_of_pdfs.csv")
 dir.create(dirname(idx_path), recursive=TRUE)
-
-write.csv(idx_fn, idx_path)
-
+write.csv(idx, idx_path)
 
 
+##############################
+##############################
+idx = fread(file.path(local_working_dir_out, "sri_lanka_WER_index_of_pdfs.csv"))
 
-idx_fn = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/sri_lanka_WER_index.csv")
-idx = idx_fn
 ######################################################################
 ######################################################################
 ######################################################################
@@ -165,21 +204,13 @@ canonize_district <- function(x) {
 
 library(data.table)
 library(stringr)
-
 # Sys.setenv("JAVA_HOME"="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot")
-
 Sys.setenv("JAVA_HOME"="/usr/lib/jvm/java-17-openjdk-amd64")
 # install.packages("rJava")
 library(tabulapdf)
 library(tabulizerjars)
-
-# install.packages("tabulapdf")
-# install.packages("tabulizerjars")
-
 library(data.table)
 library(stringr)
-library(tabulapdf)
-library(tabulizerjars)
 
 `%||%` <- function(a,b) if (!is.null(a)) a else b
 .norm <- function(x) { x <- gsub("[\u00A0]", " ", x, perl=TRUE); trimws(x) }
