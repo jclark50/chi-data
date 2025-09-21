@@ -15,6 +15,7 @@ suppressPackageStartupMessages({
   library(httr)
   library(pdftools)
 })
+library(stringr)
 
 
 ##########################################
@@ -45,12 +46,47 @@ source(here("helpers", "helpers.R"))
 # Sys.setenv("ERA5_OUT" = "C:/Users/jordan/Desktop/srilanka/stream")
 # out_root <- Sys.getenv("ERA5_OUT", unset = "C:/data/chi_outputs/srilanka")
 
-local_working_dir_out = file.path(local_working_dir, "outputs")
-dir.create(local_working_dir_out, recursive = TRUE, showWarnings = FALSE)
-
+Sys.setenv("JAVA_HOME"="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot")
+github_root_dir = 'C:/Users/jordan/R_Projects/CHI-Data/'
 
 ##########################################
 ##########################################
+
+# Define file paths for inputs/outputs.
+paths = list(
+  local_working_dir_out = file.path(local_working_dir, "outputs"),
+  
+  # midyear population estimates.
+  midyear_pop_pdf_path = file.path(github_root_dir, 'analysis/sri_lanka',
+                                    'Mid-year_population_by_district_and_sex_2024.pdf'),
+  
+  # weather station data
+  wx_station_data_path = file.path(github_root_dir, 'analysis/sri_lanka/station_data/', 
+                                    'SriLanka_Weather_Dataset.csv'),
+  
+  # landcover data.
+  landcover_path = file.path(github_root_dir, 'analysis/sri_lanka/SriLanka_Landcover_2018/', 'SriLanka_Landcover_2018.tif'),
+  
+  # aggregated (weekly) era5 data.
+  era5_agg_path = file.path(github_root_dir, 'analysis/sri_lanka/', 'srilanka_district_daily_era5_areawt.csv'),
+  
+  # dir for figures output (if running code at end of script)
+  fig_dir = file.path(github_root_dir, 'analysis/sri_lanka/outputs/figures')
+  
+
+
+)
+dir.create(paths$local_working_dir_out, recursive = TRUE, showWarnings = FALSE)
+
+paths = c(paths, 
+          
+          outputs = list(
+            
+            pdf_index_csv = file.path(github_root_dir, 'analysis/sri_lanka/outputs/sri_lanka_WER_index_of_pdfs.csv'),
+            case_counts_txt = file.path(paths$local_working_dir_out, 'disease_counts_v4.txt')
+            
+          )
+)
 
 
 ##########################################
@@ -93,11 +129,6 @@ parse_issue_from_filename_v34plus <- function(u) {
   )
 }
 
-# # Example usage:
-# urls <- c("https://www.epid.gov.lk/storage/post/pdfs/en_68aca1e16f16d_Vol_52_no_23-english.pdf")
-# parse_issue_from_filename_v34plus(urls)
-
-# read_html
 wer_url= "https://www.epid.gov.lk/weekly-epidemiological-report"
 
 coalesce1 <- function(a, b) ifelse(!is.na(a), a, b)
@@ -113,14 +144,14 @@ pdfs = pdfs[2:length(pdfs)]
 # Build initial index from filenames
 idx <- rbindlist(lapply(pdfs, parse_issue_from_filename_v34plus), fill = TRUE)
 
-idx_path  <- file.path(local_working_dir_out, "sri_lanka_WER_index_of_pdfs.csv")
+idx_path  <- file.path(paths$outputs.pdf_index_csv)
 dir.create(dirname(idx_path), recursive=TRUE)
 write.csv(idx, idx_path)
 
 
 ##############################
 ##############################
-idx = fread(file.path(local_working_dir_out, "sri_lanka_WER_index_of_pdfs.csv"))
+idx = fread(paths$outputs.pdf_index_csv)
 
 ######################################################################
 ######################################################################
@@ -156,50 +187,6 @@ canonize_district <- function(x) {
   fifelse(!is.na(y), DIST_CANON[y], x)
 }
 
-# --- Helper: find header line & Leptos column index (A token index) ---
-.find_header_and_index <- function(lines) {
-  # Fix hyphenation for "Leptos-pirosis"
-  lines2 <- gsub("Leptos-\\s*pirosis", "Leptospirosis", lines, ignore.case = TRUE)
-  lines2 <- gsub("\u00A0", " ", lines2, useBytes = TRUE)
-  
-  # Candidate header lines must mention Leptos... AND either RDHS/DPDHS OR another disease (Typhus/Viral)
-  hdr_idx <- which(
-    grepl("(?i)Leptos", lines2) &
-      (grepl("(?i)\\b(RDHS|DPDHS)\\b", lines2) | grepl("(?i)Typhus|Viral\\s*Hep", lines2))
-  )
-  if (!length(hdr_idx)) return(NULL)
-  
-  # Use the first plausible header; split into columns by >=2 spaces
-  header <- lines2[hdr_idx[1]]
-  hdr_cols <- strsplit(header, "\\s{2,}")[[1]]
-  hdr_cols <- trimws(hdr_cols)
-  
-  # Some PDFs print "DPDHS Division" (old) or "RDHS" (new) as first column header
-  # Ensure the first token is the "district" column
-  if (!length(hdr_cols)) return(NULL)
-  if (!grepl("(?i)RDHS|DPDHS|Division", hdr_cols[1])) {
-    # Sometimes the disease names start on this line; try previous line for RDHS/DPDHS
-    prev <- max(1, hdr_idx[1] - 1)
-    hdr_prev <- strsplit(lines2[prev], "\\s{2,}")[[1]]
-    if (length(hdr_prev) && grepl("(?i)RDHS|DPDHS|Division", hdr_prev[1])) {
-      hdr_cols <- c(trimws(hdr_prev[1]), hdr_cols)
-    } else {
-      # If still missing, inject a placeholder so indexing still works
-      hdr_cols <- c("RDHS/DPDHS", hdr_cols)
-    }
-  }
-  
-  # Find the "Leptospirosis" column among headers
-  lepto_i <- which(grepl("(?i)^\\s*Leptos", hdr_cols))[1]
-  if (is.na(lepto_i)) return(NULL)
-  
-  # After the header, there is often a schema row like "A   B   A   B ..."
-  # We'll skip it if present, but column indexing doesn't depend on it.
-  list(hdr_line = hdr_idx[1], hdr_cols = hdr_cols, lepto_i = lepto_i)
-}
-
-
-
 
 
 library(data.table)
@@ -212,210 +199,122 @@ library(tabulizerjars)
 library(data.table)
 library(stringr)
 
+
+
 `%||%` <- function(a,b) if (!is.null(a)) a else b
 .norm <- function(x) { x <- gsub("[\u00A0]", " ", x, perl=TRUE); trimws(x) }
-.parse_ints <- function(x) {
-  xs <- str_extract_all(.norm(x %||% ""), "\\b\\d{1,6}\\b")[[1]]
-  if (!length(xs)) return(integer(0))
-  as.integer(xs)
-}
-.has_letters <- function(x) grepl("[[:alpha:]]", x %||% "")
-
-.clean_name <- function(v) {
-  v <- .norm(v)
-  v <- gsub("\\.+", "", v)
-  v <- gsub("[^A-Za-z0-9]+", "", v)
-  tolower(v)
-}
-
-.pick_district_col <- function(mat) {
-  shares <- sapply(seq_len(ncol(mat)), function(j) mean(.has_letters(mat[, j]), na.rm = TRUE))
-  j <- which.max(shares); if (!length(j)) j <- 1L
-  as.integer(j[1])
-}
-.first_data_row <- function(mat, c_d) {
-  for (r in seq_len(nrow(mat))) {
-    cell <- .norm(mat[r, c_d])
-    if (nzchar(cell) &&
-        !grepl("(?i)^(table|page|source|key to table|wer\\s+sri\\s+lanka)", cell) &&
-        .has_letters(cell)) return(r)
-  }
-  1L
-}
 .is_footer <- function(x) grepl("(?i)^(total|source|key to table|page|wer\\s+sri\\s+lanka)", .norm(x %||% ""))
 
-.extract_dengue_ab_from_row <- function(row_vec, c_d) {
-  dcell <- row_vec[c_d] %||% ""
-  dints <- .parse_ints(dcell)
-  if (length(dints) >= 2) return(list(A = dints[1], B = dints[length(dints)]))
-  A <- if (length(dints)) dints[length(dints)] else NA_integer_
-  right <- row_vec[seq.int(from = min(c_d + 1L, length(row_vec)), to = length(row_vec))]
-  B <- NA_integer_
-  if (length(right)) {
-    for (k in seq_along(right)) {
-      cand <- .parse_ints(right[k]); if (length(cand)) { B <- cand[min(2, length(cand))]; break }
-    }
-  }
-  list(A = A, B = B)
+# Extract all integers (in order) from a string
+.parse_ints <- function(x) {
+  xs <- str_extract_all(.norm(x %||% ""), "\\b\\d{1,7}\\b")[[1]]
+  if (!length(xs)) integer(0) else as.integer(xs)
 }
 
-.build_header_texts <- function(mat, c_d, lines_above = 3L) {
-  r0 <- .first_data_row(mat, c_d)
-  hdr_rows <- max(1, r0 - lines_above):(r0 - 1)
-  hdr_rows <- hdr_rows[hdr_rows >= 1]
-  if (!length(hdr_rows)) return(rep("", ncol(mat)))
-  vapply(seq_len(ncol(mat)), function(j) {
-    txt <- paste(.norm(mat[hdr_rows, j]), collapse = " ")
-    txt <- gsub("\\.+", " ", txt)
-    gsub("\\s+", " ", txt)
-  }, character(1))
+# District name = text before first number (after collapsing the row)
+.extract_district_from_row <- function(s_row) {
+  m <- str_match(s_row, "^(.*?)(?=\\b\\d)")[,2]
+  d <- .norm(m %||% "")
+  if (.is_footer(d)) return("")
+  d <- gsub("(?i)^sri\\s*lanka\\s*$", "Sri Lanka", d, perl=TRUE)
+  d
 }
 
-.pick_lepto_col_two_stage <- function(mat, c_d, tab_names, hdr_texts) {
-  names_clean <- .clean_name(tab_names)
-  names_clean[names_clean %in% c("na","")] <- ""
-  lepto_alias <- "(?i)lepto"
-  poison_alias <- "(?i)poison|food"
-  
-  name_hits <- which(grepl(lepto_alias, names_clean))
-  poison_by_name <- which(grepl(poison_alias, names_clean))
-  if (length(name_hits)) {
-    merged_pref <- name_hits[grepl(poison_alias, names_clean[name_hits])]
-    pool <- if (length(merged_pref)) merged_pref else name_hits
-    r0 <- .first_data_row(mat, c_d); rows <- seq.int(r0, nrow(mat))
-    num_share <- sapply(pool, function(j) {
-      vals <- mat[rows, j]
-      mean(vapply(vals, function(v) length(.parse_ints(v)) >= 1, logical(1)), na.rm = TRUE)
-    })
-    pool <- pool[order(num_share, decreasing = TRUE)]
-    if (length(poison_by_name)) {
-      closest_to_poison <- function(j) min(abs(j - poison_by_name))
-      pool <- pool[order(sapply(pool, closest_to_poison))]
-    }
-    return(pool[1])
-  }
-  
-  hdr_clean <- .clean_name(hdr_texts)
-  hdr_clean[hdr_clean %in% c("na","")] <- ""
-  text_hits <- which(grepl(lepto_alias, hdr_clean))
-  if (!length(text_hits)) return(NA_integer_)
-  merged_pref <- text_hits[grepl(poison_alias, hdr_clean[text_hits])]
-  pool <- if (length(merged_pref)) merged_pref else text_hits
-  
-  r0 <- .first_data_row(mat, c_d); rows <- seq.int(r0, nrow(mat))
-  num_share <- sapply(pool, function(j) {
-    vals <- mat[rows, j]
-    mean(vapply(vals, function(v) length(.parse_ints(v)) >= 1, logical(1)), na.rm = TRUE)
-  })
-  pool <- pool[order(num_share, decreasing = TRUE)]
-  
-  poison_by_hdr <- which(grepl(poison_alias, hdr_clean))
-  if (length(poison_by_hdr)) {
-    closest_to_poison <- function(j) min(abs(j - poison_by_hdr))
-    pool <- pool[order(sapply(pool, closest_to_poison))]
-  }
-  pool[1]
+# Build a 2*k position map from a disease vector
+.make_pos_map <- function(diseases) {
+  setNames(
+    lapply(seq_along(diseases), function(i) list(A = 2L*i - 1L, B = 2L*i)),
+    diseases
+  )
 }
 
-.parse_lepto_from_cell <- function(cell) {
-  ints <- .parse_ints(cell)
-  if (length(ints) >= 4) return(list(A = ints[length(ints)-1L], B = ints[length(ints)]))
-  if (length(ints) == 3)  return(list(A = ints[2],               B = ints[3]))
-  if (length(ints) == 2)  return(list(A = ints[1],               B = ints[2]))
-  if (length(ints) == 1)  return(list(A = ints[1],               B = NA_integer_))
-  list(A = NA_integer_, B = NA_integer_)
-}
+# Default order from your screenshot (14 diseases -> 28 positions)
+DISEASES <- c(
+  "dengue", "dysentery", "encephalitis", "enteric_fever",
+  "food_poisoning", "leptospirosis", "typhus_f", "viral_hep",
+  "rabies", "chickenpox", "meningitis", "leishmania",
+  "tuberculosis", "wrcd"
+)
+POS_MAP <- .make_pos_map(DISEASES)  # e.g., dengue A=1,B=2; dysentery A=3,B=4; .; wrcd A=27,B=28
 
-# NEW: try to salvage Lepto B from nearby columns if cell had only one number
-.salvage_lepto_B_from_neighbors <- function(mat, r, lepto_col, names_clean, hdr_clean) {
-  nC <- ncol(mat)
-  bad_neighbors <- "(?i)typh|viral|hep|rabies|chicken|mening|tuberc|wr?cd|total"
-  good_neighbors <- "(?i)lepto|^$|^na$"
-  # search 1-2 columns to the right
-  for (j in seq(lepto_col + 1L, min(lepto_col + 2L, nC))) {
-    nc <- names_clean[j] %||% ""; hc <- hdr_clean[j] %||% ""
-    if (grepl(bad_neighbors, nc) || grepl(bad_neighbors, hc)) next
-    if (!(grepl(good_neighbors, nc) || grepl(good_neighbors, hc))) next
-    ints <- .parse_ints(mat[r, j])
-    if (length(ints) >= 1) return(ints[1])
-  }
-  NA_integer_
-}
+# Helper to safely pick nth number
+.pick_n <- function(ints, n) if (length(ints) >= n) ints[n] else NA_integer_
 
-extract_dengue_lepto_stream <- function(pdf_path, keep_total = FALSE, debug = FALSE) {
+# ??????????????????????????????????????????????????? MAIN ???????????????????????????????????????????????????
+extract_all_diseases_by_position <- function(
+    pdf_path,
+    diseases = DISEASES,
+    pos_map  = POS_MAP,
+    keep_total = FALSE,
+    debug = FALSE
+) {
   tabs <- tryCatch(
     extract_tables(pdf_path, guess = TRUE, method = "stream", output = "tibble"),
     error = function(e) NULL
   )
   if (is.null(tabs) || !length(tabs)) return(NULL)
   
+  max_idx <- max(unlist(lapply(pos_map, unlist)), na.rm = TRUE)
+  
   out_all <- list()
   
   for (ti in seq_along(tabs)) {
-    tab <- as.data.table(tabs[[ti]])  # your requirement
-    if (!is.data.table(tab) || nrow(tab) < 5 || ncol(tab) < 1) next
+    tab <- as.data.table(tabs[[ti]])  # <- as requested
+    if (!is.data.table(tab) || nrow(tab) < 2 || ncol(tab) < 1) next
     
+    # Force character; normalize whitespace
     tab_chr <- as.data.frame(lapply(tab, as.character), stringsAsFactors = FALSE)
-    mat <- as.matrix(apply(tab_chr, 2, .norm))
+    tab_chr[] <- lapply(tab_chr, .norm)
     
-    c_d <- .pick_district_col(mat)
-    r0  <- .first_data_row(mat, c_d)
+    rows_out <- vector("list", nrow(tab_chr)); n_out <- 0L
     
-    names_src <- names(tab)
-    hdr_texts <- .build_header_texts(mat, c_d, lines_above = 3L)
-    
-    lepto_col <- .pick_lepto_col_two_stage(mat, c_d, names_src, hdr_texts)
-    
-    # Precompute cleaned names/headers for neighbor logic
-    names_clean <- .clean_name(names_src)
-    hdr_clean   <- .clean_name(hdr_texts)
-    
-    if (debug) {
-      message(sprintf("Table %d: district_col=%d; lepto_col=%s; name(lepto)='%s'; hdr(lepto)='%s'",
-                      ti, c_d,
-                      ifelse(is.na(lepto_col), "NA", as.character(lepto_col)),
-                      ifelse(is.na(lepto_col), "", names_clean[lepto_col] %||% ""),
-                      ifelse(is.na(lepto_col), "", hdr_clean[lepto_col] %||% "")))
-    }
-    
-    rows_out <- vector("list", nrow(mat)); n_out <- 0L
-    for (r in seq.int(r0, nrow(mat))) {
-      dcell <- mat[r, c_d] %||% ""
-      if (!nzchar(dcell)) next
-      if (.is_footer(dcell) && !keep_total) break
+    for (r in seq_len(nrow(tab_chr))) {
+      s_row <- .norm(paste(tab_chr[r, ], collapse = " "))
+      if (!nzchar(s_row) || .is_footer(s_row)) next
       
-      district <- .norm(gsub("\\s*\\d+(\\s+\\d+)*\\s*$", "", dcell))
-      if (!nzchar(district) || grepl("(?i)^(table|page|source|key to table)", district)) next
+      district <- .extract_district_from_row(s_row)
+      if (!nzchar(district)) next
+      if (!keep_total && grepl("(?i)^sri\\s*lanka$", district)) next
       
-      dab <- .extract_dengue_ab_from_row(mat[r, ], c_d)
-      A <- dab$A; B <- dab$B
+      ints <- .parse_ints(s_row)
       
-      L_A <- NA_integer_; L_B <- NA_integer_
-      if (!is.na(lepto_col) && lepto_col <= ncol(mat)) {
-        lep <- .parse_lepto_from_cell(mat[r, lepto_col])
-        L_A <- lep$A; L_B <- lep$B
-        # NEW: if B missing, try neighbors (OCR split)
-        if (is.na(L_B) && !is.na(L_A)) {
-          L_B <- .salvage_lepto_B_from_neighbors(mat, r, lepto_col, names_clean, hdr_clean)
-        }
+      # Build a named list of values like dengue_A, dengue_B, .
+      vals <- list(table_id = ti, district = district, n_numbers_in_row = length(ints))
+      for (d in diseases) {
+        idxA <- pos_map[[d]]$A
+        idxB <- pos_map[[d]]$B
+        vals[[paste0(d, "_A")]] <- .pick_n(ints, idxA)
+        vals[[paste0(d, "_B")]] <- .pick_n(ints, idxB)
       }
       
-      if (is.na(A) && is.na(B) && is.na(L_A) && is.na(L_B)) next
-      
       n_out <- n_out + 1L
-      rows_out[[n_out]] <- data.table(
-        table_id = ti,
-        district = district,
-        dengue_A = A, dengue_B = B,
-        lepto_A  = L_A, lepto_B  = L_B
-      )
+      rows_out[[n_out]] <- as.data.table(vals)
     }
     
-    if (n_out) out_all[[length(out_all)+1L]] <- rbindlist(rows_out[seq_len(n_out)])
+    if (n_out) out_all[[length(out_all)+1L]] <- rbindlist(rows_out[seq_len(n_out)], use.names = TRUE, fill = TRUE)
+  }
+  
+  for (ti in 1:length(out_all)){
+    if (sum(out_all[[ti]]$n_numbers_in_row, na.rm=TRUE) < 300){
+      out_all[[ti]] <- data.table()
+    }
   }
   
   if (!length(out_all)) return(NULL)
-  unique(rbindlist(out_all, use.names = TRUE, fill = TRUE))
+  out <- rbindlist(out_all, use.names = TRUE, fill = TRUE)
+  
+  # Optional diagnostics
+  if (debug) {
+    if (any(out$n_numbers_in_row < max_idx, na.rm = TRUE)) {
+      message(sprintf("Some rows have fewer than %d numbers; corresponding *_B (and possibly later diseases) will be NA.", max_idx))
+      print(out[n_numbers_in_row < max_idx])
+    }
+  }
+  
+  # Drop diagnostic column if you prefer
+  out[, n_numbers_in_row := NULL]
+  
+  out[]
 }
 
 
@@ -435,7 +334,6 @@ for (atp in 156:nrow(idx)){
     file <- tf
   }
   file.copy(file, "test2.pdf", overwrite = TRUE)
-  
   pdf_path <- "test2.pdf"  # or "/mnt/data/file5cd8c39c70.pdf"
   # berryFunctions::openFile(pdf_path)
   res <- extract_dengue_lepto_stream(pdf_path, debug = TRUE)
@@ -459,124 +357,14 @@ jj::timed('end')
 
 allresults2 = rbindlist(allresults, fill=TRUE)
 
-saveRDS(allresults2, "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v3.Rds")
+fwrite(allresults2, paths$outputs.case_counts_txt)
 
-
-# 
-# alld = readRDS("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v3.Rds")
-# countna(alld)
-# 
-# alld = alld[district %in% lepto$district][order(date_end)]
-# countna(alld)
-# 
-# 
-# 
-
-# allresults[district == 'Colombo']
-# allresults2 = allresults[,c("district","cases","date_end")]
-# allresults2[district == 'Colombo']
-# plot(allresults2[district == 'Colombo']$cases, type = 'l')
-# write.csv(allresults, 'xxWER_leptospirosis_counts.csv')
-write.csv(allresults, "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/WER_leptospirosis_counts.csv")
 
 
 #################################################################################
 #################################################################################
 #################################################################################
 #################################################################################
-#################################################################################
-#################################################################################
-#################################################################################
-#################################################################################
-#################################################################################
-
-
-
-# Summary: Build a district-week panel from WER data and save multiple plots:
-# national trend (lines), top districts (bars), small-multiple trends, seasonality
-# (boxplots), heatmap of rolling burden, and YoY change bars.
-
-suppressPackageStartupMessages({
-  library(data.table)
-  library(lubridate)
-  library(ggplot2)
-  library(scales)
-})
-
-library(jj)
-
-
-setDTthreads(8)
-
-
-
-
-
-
-# MID YEAR POPULATION ESTIMATES 2014-2023
-
-
-library(data.table)
-library(stringr)
-
-Sys.setenv("JAVA_HOME"="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot")
-
-library(tabulapdf)
-library(tabulizerjars)
-# remotes::install_github(c("ropensci/tabulizerjars", "ropensci/tabulizer"), INSTALL_opts = "--no-multiarch")
-
-# --- CONFIG ---
-pdf_path <- "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/Mid-year_population_by_district_and_sex_2024.pdf"  # adjust if needed
-tabs <- extract_tables(pdf_path, method = "lattice", guess = TRUE, output = "tibble")
-
-pdfyears = 2014:2023
-allpopdat = list()
-for (apage in 1:3){
-  pdfpg1 = as.data.table(tabs[[apage]])
-  
-  yrheads = names(pdfpg1)[which(names(pdfpg1) %likeany% pdfyears)]
-  ayy=1
-  alist = list()
-  for (ayy in 1:length(yrheads)){
-    curyear = yrheads[[ayy]]
-    
-    district_names = pdfpg1$District[-1]
-    
-    curpopcol = which(pdfpg1[1] == 'Total')[ayy]
-    curpopcolname = names(pdfpg1)[curpopcol]
-    curpopcol = pdfpg1[, ..curpopcolname]
-    
-    curpopcol = tail(curpopcol, -1)
-    alist[[ayy]] = data.table(year = curyear, district = district_names, poptot = curpopcol)
-    names(  alist[[ayy]] ) <- c('year','district','poptot')
-    
-    
-  }
-  allpopdat[[apage]] = rbindlist(alist)
-  
-}
-allpopdat = rbindlist(allpopdat)
-allpopdat$year = gsub("\\*","",allpopdat$year)
-allpopdat$poptot = gsub(",","",allpopdat$poptot)
-allpopdat$poptot = as.numeric(allpopdat$poptot) * 1000
-allpopdat$year = as.integer(allpopdat$year)
-
-
-
-# head(allpopdat)
-# 
-
-
-
-# ---- Inputs (rename these if your column names differ) ----
-# allpopdat: columns = year (char/int), district (char), poptot (numeric; absolute count)
-# lepto_dt : columns = date (IDate/Date/char), district (char), cases (int)
-
-# Example: if your lepto table uses different names, rename like:
-# setnames(lepto_dt, c("your_date_col","your_dist_col","your_count_col"),
-#                     c("date","district","cases"))
-
-
 
 
 
@@ -599,44 +387,6 @@ normalize_district <- function(x) {
   ))
   y
 }
-
-build_pop_lookup <- function(pop_dt, reference_year = 2012L) {
-  # pop_dt: year, district, poptot
-  DT <- copy(pop_dt)
-  # coerce types
-  DT[, year := as.integer(year)]
-  DT[, district := normalize_district(district)]
-  # drop national total rows
-  DT <- DT[!district %in% c("Sri Lanka","Sri-lanka","Sri_Lanka")]
-  
-  # if exact ref year exists, use it; otherwise nearest <= ref; otherwise nearest overall
-  if (reference_year %in% DT$year) {
-    sel <- DT[year == reference_year, .(district, pop = as.numeric(poptot))]
-  } else {
-    # nearest year <= ref
-    yrs_le <- DT[year <= reference_year, max(year, na.rm = TRUE)]
-    if (is.finite(yrs_le)) {
-      sel <- DT[year == yrs_le, .(district, pop = as.numeric(poptot))]
-    } else {
-      # absolute nearest year
-      nearest <- DT[, .(year = year[which.min(abs(year - reference_year))]), by = district]
-      sel <- nearest[DT, on = .(district, year), .(district, pop = as.numeric(poptot))]
-    }
-  }
-  # ensure one row per district
-  sel <- unique(sel, by = "district")
-  sel
-}
-
-prepare_lepto <- function(lepto_dt) {
-  DT <- copy(lepto_dt)
-  # coerce types
-  if (!inherits(DT$date, "Date")) DT[, date := as.IDate(date)]
-  DT[, district := normalize_district(district)]
-  DT[, cases := as.integer(cases)]
-  DT
-}
-
 
 # --- 1) Canonical district list (25 census districts) ---
 districts_census <- c(
@@ -674,24 +424,10 @@ norm_dist <- function(x) {
 
 
 
-lepto = readRDS("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v4.Rds")
-
-
+lepto = fread(paths$outputs.case_counts_txt)
 lepto[, date_mid := as.IDate(date_start + (as.integer(date_end - date_start) / 2))]
-
-
 lepto$year = lyear(lepto$date_start)
-# lepto$laprt
 
-
-
-
-
-
-# -------- Paths --------
-lepto_path <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/counts_test_v4.Rds"
-
-lepto = readRDS(lepto_path)
 lepto[, district := norm_dist(district)]
 lepto[, date_mid := as.IDate(date_start + (as.integer(date_end - date_start) / 2))]
 lepto$lepto = lepto$leptospirosis_A
@@ -701,29 +437,83 @@ lepto[year >= 2014, year2merge := year]
 lepto[year < 2014, year2merge := 2014]
 
 
-
-
-allpopdat[, district := norm_dist(district)]
-
 lepto = merge(lepto, allpopdat, by.x = c("district","year2merge"), by.y = c("district","year"), all=F)
 
 lepto[, lepto_100k := (lepto / poptot) * 1e5]
 lepto[, dengue_100k := (dengue / poptot) * 1e5]
-# 
-# # ---- Optional: quality checks ----
-# missing_pop <- lepto[is.na(poptot), unique(district)]
-# if (length(missing_pop)) {
-#   message("No population match for districts: ",
-#           paste(sort(missing_pop), collapse = ", "))
-# }
-# # names(lepto)
-# lepto$V1 = NULL
-# lepto$url = NULL
-# lepto$page = NULL
-# lepto$method = NULL
-# lepto = lepto[!is.na(district)]
-# 
-# names(lepto)
+
+
+#################################################################################
+#################################################################################
+#################################################################################
+#################################################################################
+#################################################################################
+
+
+
+# Summary: Build a district-week panel from WER data and save multiple plots:
+# national trend (lines), top districts (bars), small-multiple trends, seasonality
+# (boxplots), heatmap of rolling burden, and YoY change bars.
+
+suppressPackageStartupMessages({
+  library(data.table)
+  library(lubridate)
+  library(ggplot2)
+  library(scales)
+})
+library(jj)
+
+library(data.table)
+library(stringr)
+
+library(tabulapdf)
+library(tabulizerjars)
+# remotes::install_github(c("ropensci/tabulizerjars", "ropensci/tabulizer"), INSTALL_opts = "--no-multiarch")
+
+setDTthreads(8)
+# MID YEAR POPULATION ESTIMATES 2014-2023
+
+
+# --- CONFIG ---
+tabs <- extract_tables(paths$midyear_pop_pdf_path, method = "lattice", guess = TRUE, output = "tibble")
+
+pdfyears = 2014:2023
+allpopdat = list()
+for (apage in 1:3){
+  pdfpg1 = as.data.table(tabs[[apage]])
+  
+  yrheads = names(pdfpg1)[which(names(pdfpg1) %likeany% pdfyears)]
+  ayy=1
+  alist = list()
+  for (ayy in 1:length(yrheads)){
+    curyear = yrheads[[ayy]]
+    
+    district_names = pdfpg1$District[-1]
+    
+    curpopcol = which(pdfpg1[1] == 'Total')[ayy]
+    curpopcolname = names(pdfpg1)[curpopcol]
+    curpopcol = pdfpg1[, ..curpopcolname]
+    
+    curpopcol = tail(curpopcol, -1)
+    alist[[ayy]] = data.table(year = curyear, district = district_names, poptot = curpopcol)
+    names(  alist[[ayy]] ) <- c('year','district','poptot')
+    
+    
+  }
+  allpopdat[[apage]] = rbindlist(alist)
+  
+}
+allpopdat = rbindlist(allpopdat)
+allpopdat$year = gsub("\\*","",allpopdat$year)
+allpopdat$poptot = gsub(",","",allpopdat$poptot)
+allpopdat$poptot = as.numeric(allpopdat$poptot) * 1000
+allpopdat$year = as.integer(allpopdat$year)
+allpopdat[, district := norm_dist(district)]
+
+
+
+
+
 
 
 
@@ -732,19 +522,12 @@ lepto[, dengue_100k := (dengue / poptot) * 1e5]
 ####################################################################################
 ####################################################################################
 
-# link lepto with station data.
+# link lepto with weather station data.
 
-wx_station_data = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/station_data/SriLanka_Weather_Dataset.csv",
-                        header=TRUE)
+wx_station_data = fread(paths$wx_station_data_path, header=TRUE)
 
-head(wx_station_data)
-str(wx_station_data)
-
-wx_station_data[,.N,by=city][order(city)]
-wx_station_data[!city %in% lepto$district]
-
-
-
+# wx_station_data[,.N,by=city][order(city)]
+# wx_station_data[!city %in% lepto$district]
 # ?????? 0) Inputs ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 # data.tables you already have:
 #   - lepto:   columns at least district, date, cases   (date = Date/IDate)
@@ -829,25 +612,22 @@ wx_dist_daily <- wx_keep[
 lepto[, district := norm_dist(district)]
 wx_dist_daily[, district := norm_dist(district)]
 
-# (Optional special admin handling: Kalmunai is in Ampara; if it ever appears as a district in lepto)
-lepto[district == "Kalmunai", district := "Ampara"]
-
 # Join weather to lepto by district + date
 setkey(lepto, district, date)
 setkey(wx_dist_daily, district, date)
 lepto_weather <- wx_dist_daily[lepto]  # left join onto lepto; keeps all lepto rows
 
 # ?????? 5) Quick diagnostics ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
-if (anyNA(lepto_weather$temperature_2m_mean)) {
-  miss <- lepto_weather[is.na(temperature_2m_mean), .N, by = district][order(-N)]
-  message("Lepto rows lacking matched weather (top):")
-  print(head(miss, 10))
-}
+# if (anyNA(lepto_weather$temperature_2m_mean)) {
+#   miss <- lepto_weather[is.na(temperature_2m_mean), .N, by = district][order(-N)]
+#   message("Lepto rows lacking matched weather (top):")
+#   print(head(miss, 10))
+# }
 
 # ?????? 6) Result ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 # 'lepto_weather' now has district, date, cases (+ your other lepto fields) and the district-aggregated daily weather.
 lepto = lepto_weather
-# 
+
 # names(lepto_weather)
 # "temperature_2m_max"         "temperature_2m_min"        
 # [5] "temperature_2m_mean"        "apparent_temperature_max"   "apparent_temperature_min"   "apparent_temperature_mean" 
@@ -861,7 +641,8 @@ lepto = lepto_weather
 # MERGE WITH LAND COVER DATA.
 
 # ?????? 0) Inputs ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
-lc_path <- "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/SriLanka_Landcover_2018/SriLanka_Landcover_2018.tif"
+
+lc_path = paths$landcover_path
 r <- rast(lc_path)
 
 # Define your class legend (update if your TIFF uses different codes)
@@ -959,13 +740,10 @@ lepto = merge(lepto, lc_wide, by = c("district"))
 
 # MERGE IN ERA5 DATA.
 
-# aggreated to district/daily in script "sri_lanka_daily_era5-district_level.R"
-
-era5 = fread("C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/srilanka_district_daily_era5_areawt.csv")
-
+# aggregated to district/daily in script "sri_lanka_daily_era5-district_level.R"
+era5 = fread(paths$era5_agg_path)
 
 lepto = merge(lepto, era5, by = c("date","district"))
-
 names(lepto)
 
 
@@ -974,19 +752,17 @@ names(lepto)
 
 
 
+######################################################################
+######################################################################
+
+
+######################################################################
+######################################################################
 
 
 
-
-
-
-
-
-
-
-
-
-
+######################################################################
+######################################################################
 
 
 
@@ -1011,31 +787,6 @@ lepto[, .(rate = mean(lepto_100k, na.rm = TRUE),
           built = mean(BuiltUp)), 
       by = district]
 
-num_vars <- c("lepto_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
-cor_mat <- cor(lepto[, ..num_vars], use = "complete.obs")
-cor_mat["lepto_100k",]
-
-
-num_vars <- c("dengue_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
-cor_mat <- cor(lepto[, ..num_vars], use = "complete.obs")
-cor_mat["dengue_100k",]
-
-
-
-# 
-# lepto[, high_paddy := Paddy > median(Paddy, na.rm=TRUE)]
-# lepto[, .(mean_rate = mean(rate_per_100k, na.rm=TRUE)), by = high_paddy]
-
-
-m1 <- lm(lepto_100k ~ Paddy + Wetland + BuiltUp + Water + Grass + Shrub, data = lepto)
-summary(m1)
-
-m1 <- lm(dengue_100k ~ Paddy + Wetland + BuiltUp + Water + Grass + Shrub, data = lepto)
-summary(m1)
-
-m1 <- lm(lepto_100k ~ temperature_2m_max + temperature_2m_min, data = lepto)
-summary(m1)
-
 # Remove obvious outliers/erroneous data points.
 # plot(lepto[district == 'Jaffna']$date_mid, lepto[district == 'Jaffna']$lepto_100k, type = 'l')
 # plot(lepto[district == 'Vavuniya']$date_mid, lepto[district == 'Vavuniya']$dengue_100k, type = 'l')
@@ -1045,6 +796,29 @@ lepto[district == 'Kilinochchi' & dengue_100k > 200, dengue_100k := NA]
 lepto[district == 'Mannar' & dengue_100k > 200, dengue_100k := NA]
 lepto[district == 'Vavuniya' & year == 2020 & dengue_100k > 60, dengue_100k := NA]
 
+##################
+##################
+# Test basic correlations.
+num_vars <- c("lepto_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
+cor_mat <- cor(lepto[, ..num_vars], use = "complete.obs")
+cor_mat["lepto_100k",]
+
+
+num_vars <- c("dengue_100k","BuiltUp","Cropland","Grass","Paddy","Shrub","Water","Wetland")
+cor_mat <- cor(lepto[, ..num_vars], use = "complete.obs")
+cor_mat["dengue_100k",]
+
+# test basic linear models.
+# m1 <- lm(lepto_100k ~ Paddy + Wetland + BuiltUp + Water + Grass + Shrub, data = lepto)
+# summary(m1)
+# 
+# m1 <- lm(dengue_100k ~ Paddy + Wetland + BuiltUp + Water + Grass + Shrub, data = lepto)
+# summary(m1)
+# 
+# m1 <- lm(lepto_100k ~ temperature_2m_max + temperature_2m_min, data = lepto)
+# summary(m1)
+
+
 
 
 ######################################################################
@@ -1059,11 +833,9 @@ lepto[district == 'Vavuniya' & year == 2020 & dengue_100k > 60, dengue_100k := N
 ######################################################################
 ######################################################################
 
-lepto$cases = lepto$lepto_100k
+# lepto$cases = lepto$lepto_100k
 
-
-fig_dir <-  "C:/Users/jordan/R_Projects/CHI-Data/analysis/sri_lanka/outputs/figures/"
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(paths$fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 # -------- Helpers --------
 canon <- c("Colombo","Gampaha","Kalutara","Kandy","Matale","Nuwara Eliya",
