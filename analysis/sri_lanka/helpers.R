@@ -124,6 +124,53 @@ norm_dist <- function(x) {
   x2
 }
 
+# ---- RAR extractor (tries unrar, then 7z; cross-platform) --------------------
+extract_rar <- function(rar_file, out_dir) {
+  if (!file.exists(rar_file)) stop("RAR file not found: ", rar_file)
+  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  
+  # Candidates to try, in order
+  cand <- c(
+    Sys.which("unrar"),
+    Sys.which("7z"),
+    "C:/Program Files/7-Zip/7z.exe",
+    "C:/Program Files (x86)/7-Zip/7z.exe",
+    "/usr/local/bin/7z",           # macOS Intel (Homebrew)
+    "/opt/homebrew/bin/7z",        # macOS Apple Silicon
+    "/usr/bin/7z"                  # Linux
+  )
+  cand <- cand[nzchar(cand)]
+  
+  if (!length(cand)) {
+    stop(paste0(
+      "No extractor found. Install one of:\n",
+      "  . Windows: 7-Zip (https://www.7-zip.org/) and ensure 7z.exe is on PATH\n",
+      "  . macOS:  brew install p7zip\n",
+      "  . Linux:  sudo apt-get install p7zip-full\n",
+      "Then re-run."
+    ))
+  }
+  
+  # Try each candidate until one works
+  for (exe in cand) {
+    # Build args for unrar vs 7z
+    if (grepl("unrar", basename(exe), ignore.case = TRUE)) {
+      args <- c("x", "-o+", rar_file, out_dir)
+    } else {
+      args <- c("x", rar_file, paste0("-o", out_dir), "-y")
+    }
+    msg <- tryCatch(
+      system2(exe, args, stdout = TRUE, stderr = TRUE),
+      error = function(e) e$message
+    )
+    # Heuristic: consider success if a .tif shows up
+    tif_found <- length(list.files(out_dir, pattern = "\\.tif(f)?$", recursive = TRUE)) > 0
+    if (tif_found) return(invisible(TRUE))
+  }
+  
+  stop("Extraction failed; tried: ", paste(basename(cand), collapse = ", "),
+       ". Check permissions or use a different extractor.")
+}
 
 
 
