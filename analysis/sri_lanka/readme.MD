@@ -1,71 +1,102 @@
-population data: https://data.gov.lk/dataset/population-district-census-years
-weather portal: https://weather.meteo.gov.lk/
-
-
-Here’s a **concise GitHub README draft** that tells someone what to run and why, with an option to start directly from `post_processing.R` if they just want to explore data:
+Here’s a concise README you can drop at the repo root.
 
 ---
 
 # Sri Lanka WER Processing
 
-This repository contains scripts to build a reproducible dataset from the **Weekly Epidemiological Reports (WERs)** published by the Sri Lanka Ministry of Health.
+Build a reproducible dataset from Sri Lanka’s **Weekly Epidemiological Reports (WERs)**: extract weekly district disease counts (e.g., dengue, leptospirosis), link to population, station weather, land cover, and ERA5, and output **analysis-ready panels** (plus optional figures).
 
-The workflow extracts disease counts (e.g., dengue, leptospirosis) from PDFs, links them with population, weather, land cover, and ERA5 climate data, and produces **analysis-ready panels and plots**.
+## What to run
 
----
+* **Full pipeline** (crawl + extract + join):
 
-## Getting Started
+  1. `analysis/sri_lanka/initial_processing.R`
+  2. `analysis/sri_lanka/post_processing.R`
 
-1. **Clone the repository**
+* **Just explore data quickly** (skip crawling/extraction):
+  Run **`analysis/sri_lanka/post_processing.R`** directly after cloning.
+  It reads the pre-extracted outputs in `analysis/sri_lanka/outputs/`.
 
-   ```bash
-   git clone https://github.com/jclark50/chi-data.git
-   cd chi-data
-   ```
+## Requirements
 
-2. **Install R dependencies**
-   Packages used include:
-   `data.table`, `stringr`, `lubridate`, `pdftools`, `tabulapdf`, `tabulizerjars`, `sf`, `terra`, `exactextractr`, `ggplot2`, `scales`, `ragg`.
+R packages: `data.table`, `stringr`, `lubridate`, `pdftools`, `xml2`, `rvest`,
+`sf`, `terra`, `exactextractr`, `ggplot2`, `scales`, `ragg`
+Optional (only if parsing population PDF): `tabulizer`, `tabulizerjars`, working **Java (JDK)**.
 
-   Make sure you also have a working Java installation for PDF table extraction (`tabulapdf`).
+Environment variables (recommended via `~/.Renviron`):
 
----
-
-## Workflow
-
-* **`initial_processing.R`**
-  Full end-to-end pipeline:
-
-  * Indexes WER PDFs
-  * Extracts weekly district-level disease counts
-  * Joins with population, weather station, land cover, and ERA5 aggregates
-  * Saves intermediate outputs for downstream use
-
-* **`post_processing.R`**
-  Loads processed outputs and focuses on:
-
-  * Data cleaning
-  * Exploratory analysis
-  * Plot generation and figure export
-
----
-
-## Quick Start
-
-If you **just want to explore the data/plots** without running the full extraction pipeline:
-
-* Clone this repo
-* Run **`post_processing.R`**
-* This will start from the already-extracted outputs saved in `analysis/sri_lanka/outputs/`
-
----
+```
+CHI_LOCAL_WORK="C:/path/to/workdir"              # temp/outputs
+CHI_GITHUB_ROOT="C:/path/to/CHI-Data"            # repo root
+# Optional: bypass Java by providing a tidy population CSV
+CHI_POP_CSV=".../analysis/sri_lanka/inputs/population_by_district_in_census_years.csv"
+# Windows only if needed:
+# JAVA_HOME="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot"
+```
 
 ## Outputs
 
-* `outputs/sri_lanka_WER_index_of_pdfs.csv` → reproducible index of all WERs
-* `outputs/disease_counts_v4.txt` → extracted disease tables
-* Figures are written to `analysis/sri_lanka/outputs/figures/`
+* `analysis/sri_lanka/outputs/sri_lanka_WER_index_of_pdfs.csv` (WER index)
+* `analysis/sri_lanka/outputs/disease_counts_v4.txt` (extracted counts)
+* `outputs/lep_analysis_panel.csv` (final merged panel)
+* Figures (if generated) → `analysis/sri_lanka/outputs/figures/`
+
+## Quick start
+
+```r
+# from R
+source("analysis/sri_lanka/post_processing.R")
+# opens & merges pre-extracted outputs so you can explore immediately
+```
 
 ---
 
-Would you like me to also add a **“Project Structure” tree diagram** (like a mini file map with `/analysis/sri_lanka`, `/helpers`, `/outputs`) so newcomers can immediately see where things live?
+## Project structure (key paths)
+
+```text
+CHI-Data/
+├─ analysis/
+│  ├─ madagascar/                      # separate project; leave as-is
+│  └─ sri_lanka/
+│     ├─ initial_processing.R          # 1) crawl WER PDFs, extract counts
+│     ├─ post_processing.R             # 2) join pop/weather/landcover/ERA5 → panel
+│     ├─ helpers.R                     # parsing, normalization, disease maps
+│     ├─ inputs/
+│     │  ├─ Mid-year_population_by_district_and_sex_2024.pdf
+│     │  ├─ population_by_district_in_census_years.csv   # (CSV fallback for pop)
+│     │  └─ station_data/
+│     │     ├─ SriLanka_Weather_Dataset.csv
+│     │     ├─ SriLanka_Weather_Dataset_V1.csv
+│     │     └─ readme.txt
+│     ├─ outputs/
+│     │  ├─ disease_counts_v4.txt
+│     │  ├─ sri_lanka_WER_index_of_pdfs.csv
+│     │  ├─ srilanka_district_daily_era5_areawt.csv
+│     │  ├─ srilanka_district_weekly_era5_areawt.csv
+│     │  └─ figures/
+│     │     ├─ P1_national_trend.png
+│     │     ├─ P2_top15_latest_week.png
+│     │     ├─ P3_top6_last52_facets.png
+│     │     ├─ P4_seasonality_boxplots.png
+│     │     └─ P6_yoy_change_top15.png
+│     └─ SriLanka_Landcover_2018/
+│        └─ SriLanka_Landcover_2018.tif
+├─ helpers/
+│  ├─ helpers.R                         # shared utilities
+│  └─ plot_helpers.R
+├─ data/
+│  └─ readme.MD
+├─ docs/
+│  └─ sri_lanka/
+│     └─ readme.MD.txt
+└─ CHI-Data.Rproj
+```
+
+---
+
+### Notes
+
+* If `tabulizer`/Java is painful on your machine, set `CHI_POP_CSV` to use the provided population CSV and run `post_processing.R`.
+* District naming is normalized internally; if you add new sources, map any novel aliases in `analysis/sri_lanka/helpers.R`.
+
+If you want this README auto-copied to `analysis/sri_lanka/readme.MD` with a shorter, subfolder-specific version, I can draft that too.
