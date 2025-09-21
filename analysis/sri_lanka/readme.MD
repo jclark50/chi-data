@@ -25,15 +25,6 @@ Optional (only if parsing population PDF): `tabulizer`, `tabulizerjars`, working
 
 Environment variables (recommended via `~/.Renviron`):
 
-```
-CHI_LOCAL_WORK="C:/path/to/workdir"              # temp/outputs
-CHI_GITHUB_ROOT="C:/path/to/CHI-Data"            # repo root
-# Optional: bypass Java by providing a tidy population CSV
-CHI_POP_CSV=".../analysis/sri_lanka/inputs/population_by_district_in_census_years.csv"
-# Windows only if needed:
-# JAVA_HOME="C:/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot"
-```
-
 ## Outputs
 
 * `analysis/sri_lanka/outputs/sri_lanka_WER_index_of_pdfs.csv` (WER index)
