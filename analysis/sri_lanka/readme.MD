@@ -74,11 +74,6 @@ CHI-Data/
 │     │  ├─ srilanka_district_daily_era5_areawt.csv
 │     │  ├─ srilanka_district_weekly_era5_areawt.csv
 │     │  └─ figures/
-│     │     ├─ P1_national_trend.png
-│     │     ├─ P2_top15_latest_week.png
-│     │     ├─ P3_top6_last52_facets.png
-│     │     ├─ P4_seasonality_boxplots.png
-│     │     └─ P6_yoy_change_top15.png
 │     └─ SriLanka_Landcover_2018/
 │        └─ SriLanka_Landcover_2018.tif
 ├─ helpers/
@@ -89,7 +84,6 @@ CHI-Data/
 ├─ docs/
 │  └─ sri_lanka/
 │     └─ readme.MD.txt
-└─ CHI-Data.Rproj
 ```
 
 ---
