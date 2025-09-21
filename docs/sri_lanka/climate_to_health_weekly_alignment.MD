@@ -1,6 +1,6 @@
 # Linking Hourly Climate Data to Weekly Health Outcomes: Sri Lanka Example / Guide
 
-**Author:** Jordan Clark, PhD — Data Scientist, Duke Global Health Institute (DGHI) / Co-founder, Klimo Insights
+**Author:** Jordan Clark, PhD — Data Scientist, Duke Global Health Institute (DGHI) / Climatologist, Klimo Insights
 
 ---
 
