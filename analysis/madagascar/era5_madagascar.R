@@ -120,7 +120,7 @@ source(here("helpers", "helpers.R"))
 #
 # To check what R sees:
 # Sys.getenv("ERA5_MADAGASCAR")
-Sys.setenv("ERA5_MADAGASCAR" = "G:/My Drive/Duke/DGHI/data/era5/")
+Sys.setenv("ERA5_MADAGASCAR" = "G:/My Drive/Duke/DGHI/data/era5/madagascar/")
 era5_root <- Sys.getenv("ERA5_MADAGASCAR", unset = NA)
 if (is.na(era5_root)) {
   stop("Environment variable ERA5_MADAGASCAR not set. Please edit your .Renviron.")

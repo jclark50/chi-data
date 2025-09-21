@@ -26,6 +26,31 @@ source(here("helpers", "helpers.R"))
 ########################
 ########################
 
+##########################################
+# # 0) CONFIG
+##########################################
+
+# ---- Load helper functions ----
+source(here("helpers", "helpers.R"))
+
+# ---- Configurable paths via .Renviron ----
+# In your ~/.Renviron or project .Renviron file, set:
+#   ERA5_MADAGASCAR=C:/Users/jordan/Google Drive/CHI-Data/era5_madagascar
+#   ERA5_STREAM=C:/Users/jordan/Google Drive/CHI-Data/madagascar_streamed
+#
+# To check what R sees:
+# Sys.getenv("ERA5_MADAGASCAR")
+Sys.setenv("ERA5_SRILANKA" = "G:/My Drive/Duke/DGHI/data/era5/srilanka/")
+era5_root <- Sys.getenv("ERA5_SRILANKA", unset = NA)
+if (is.na(era5_root)) {
+  stop("Environment variable ERA5_MADAGASCAR not set. Please edit your .Renviron.")
+  # usethis::edit_r_environ("project")
+  # Sys.setenv("ERA5_MADAGASCAR" = "G:/My Drive/Duke/DGHI/data/era5/")
+}
+
+
+
+
 era5_root = "E:/data/gridded/era5-srilanka/processed"
 
 # ---- Analysis settings ----
