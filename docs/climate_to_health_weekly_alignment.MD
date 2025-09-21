@@ -126,29 +126,55 @@ Use fixed CRS codes (e.g., EPSG:6933 for equal-area operations) and seeded split
 ## References
 
 Apley, D. W., & Zhu, J. (2020). Visualizing the effects of predictor variables in black box supervised learning models. *Journal of the Royal Statistical Society: Series B (Statistical Methodology)*, 82(4), 1059–1086. [https://doi.org/10.1111/rssb.12377](https://doi.org/10.1111/rssb.12377)
+
 Bergmeir, C., & Benítez, J. M. (2012). On the use of cross-validation for time series predictor evaluation. *Computational Statistics & Data Analysis*, 70, 324–335. [https://doi.org/10.1016/j.csda.2012.10.020](https://doi.org/10.1016/j.csda.2012.10.020)
+
 Bhaskaran, K., Gasparrini, A., Hajat, S., Smeeth, L., & Armstrong, B. (2013). Time series regression studies in environmental epidemiology. *International Journal of Epidemiology*, 42(4), 1187–1195. [https://doi.org/10.1093/ije/dyt092](https://doi.org/10.1093/ije/dyt092)
+
 Carroll, R. J., Ruppert, D., Stefanski, L. A., & Crainiceanu, C. M. (2006). *Measurement error in nonlinear models* (2nd ed.). Chapman & Hall/CRC. [https://doi.org/10.1201/9781420010138](https://doi.org/10.1201/9781420010138)
+
 Dormann, C. F., Elith, J., Bacher, S., Buchmann, C., Carl, G., Carré, G., García Marquéz, J. R., Gruber, B., Lafourcade, B., Leitão, P. J., Münkemüller, T., McClean, C., Osborne, P. E., Reineking, B., Schröder, B., Skidmore, A. K., Zurell, D., & Lautenbach, S. (2013). Collinearity: A review of methods to deal with it and a simulation study evaluating their performance. *Ecography*, 36(1), 27–46. [https://doi.org/10.1111/j.1600-0587.2012.07348.x](https://doi.org/10.1111/j.1600-0587.2012.07348.x)
+
 Fotheringham, A. S., & Wong, D. W. S. (1991). The modifiable areal unit problem in multivariate statistical analysis. *Environment and Planning A*, 23(7), 1025–1044. [https://doi.org/10.1068/a231025](https://doi.org/10.1068/a231025)
+
 Gasparrini, A. (2010). Distributed lag non-linear models. *Statistics in Medicine*, 29(21), 2224–2234. [https://doi.org/10.1002/sim.3940](https://doi.org/10.1002/sim.3940)
+
 Gasparrini, A. (2021). The case time series design. *Epidemiology*, 32(6), 829–837. [https://doi.org/10.1097/EDE.0000000000001390](https://doi.org/10.1097/EDE.0000000000001390)
+
 Gasparrini, A. (2022). A tutorial on the case time series design for small-area analysis. *International Journal of Health Geographics*, 21, 13. [https://doi.org/10.1186/s12942-022-00300-2](https://doi.org/10.1186/s12942-022-00300-2)
+
 Gryparis, A., Paciorek, C. J., Zeka, A., Schwartz, J., & Coull, B. A. (2009). Measurement error caused by spatial misalignment in environmental epidemiology. *Biostatistics*, 10(2), 258–274. [https://doi.org/10.1093/biostatistics/kxn033](https://doi.org/10.1093/biostatistics/kxn033)
+
 Janes, H., Sheppard, L., & Lumley, T. (2005). Case-crossover analyses of air pollution exposure data: Referent selection strategies and their implications for bias. *Epidemiology*, 16(6), 717–726. [https://doi.org/10.1097/01.ede.0000181315.18836.9d](https://doi.org/10.1097/01.ede.0000181315.18836.9d)
+
 Karl, T. R., Nicholls, N., & Ghazi, A. (1999). CLIVAR/GCOS/WMO workshop on indices and indicators for climate extremes: Workshop summary. *Climatic Change*, 42(1), 3–7. [https://doi.org/10.1023/A:1005491526870](https://doi.org/10.1023/A:1005491526870)
+
 Liljegren, J. C., Carhart, R. A., Lawday, P., Tschopp, S., & Sharp, R. (2008). Modeling the wet bulb globe temperature using standard meteorological measurements. *Journal of Occupational and Environmental Hygiene*, 5(10), 645–655. [https://doi.org/10.1080/15459620802310770](https://doi.org/10.1080/15459620802310770)
+
 Lundberg, S. M., & Lee, S.-I. (2017). A unified approach to interpreting model predictions. *Advances in Neural Information Processing Systems*, 30. [https://doi.org/10.48550/arXiv.1705.07874](https://doi.org/10.48550/arXiv.1705.07874)
+
 Maclure, M. (1991). The case-crossover design: A method for studying transient effects on the risk of acute events. *American Journal of Epidemiology*, 133(2), 144–153. [https://doi.org/10.1093/oxfordjournals.aje.a115853](https://doi.org/10.1093/oxfordjournals.aje.a115853)
+
 Meinshausen, N., & Bühlmann, P. (2010). Stability selection. *Journal of the Royal Statistical Society: Series B (Statistical Methodology)*, 72(4), 417–473. [https://doi.org/10.1111/j.1467-9868.2010.00740.x](https://doi.org/10.1111/j.1467-9868.2010.00740.x)
+
 Mennis, J. (2003). Generating surface models of population using dasymetric mapping. *The Professional Geographer*, 55(1), 31–42. [https://doi.org/10.1111/0033-0124.10042](https://doi.org/10.1111/0033-0124.10042)
+
 Novick, K. A., Ficklin, D. L., Stoy, P. C., Williams, C. A., Bohrer, G., Oishi, A. C., Papuga, S. A., Blanken, P. D., Noormets, A., Sulman, B. N., Scott, R. L., Wang, L., & Phillips, R. P. (2016). The increasing importance of atmospheric demand for ecosystem water and carbon fluxes. *Nature Climate Change*, 6(11), 1023–1027. [https://doi.org/10.1038/nclimate3114](https://doi.org/10.1038/nclimate3114)
+
 Peng, R. D., Dominici, F., & Louis, T. A. (2006). Model choice in time series studies of air pollution and mortality. *Journal of the Royal Statistical Society: Series A (Statistics in Society)*, 169(2), 179–203. [https://doi.org/10.1111/j.1467-985X.2006.00410.x](https://doi.org/10.1111/j.1467-985X.2006.00410.x)
+
 Simmons, A. J., Poli, P., Dee, D. P., Berrisford, P., Hersbach, H., Kobayashi, S., & Peubey, C. (2018). A reassessment of temperature variations and trends from global reanalyses. *Quarterly Journal of the Royal Meteorological Society*, 144(713), 29–49. [https://doi.org/10.1002/qj.3311](https://doi.org/10.1002/qj.3311)
+
 Tibshirani, R. (1996). Regression shrinkage and selection via the LASSO. *Journal of the Royal Statistical Society: Series B (Methodological)*, 58(1), 267–288. [https://doi.org/10.1111/j.2517-6161.1996.tb02080.x](https://doi.org/10.1111/j.2517-6161.1996.tb02080.x)
+
 Tran, H., Nguyen-Le, D., Le, D. H., Truong, H. Q., Ngo-Duc, T., Ho, T. C., & Pham, T. T. (2019). A multi-model assessment of precipitation products over Vietnam. *Atmospheric Research*, 227, 190–202. [https://doi.org/10.1016/j.atmosres.2019.05.017](https://doi.org/10.1016/j.atmosres.2019.05.017)
+
 Vatcheva, K. P., Lee, M., McCormick, J. B., & Rahbar, M. H. (2016). Multicollinearity in regression analyses in medical research. *North American Journal of Medical Sciences*, 8(7), 306–311. [https://doi.org/10.4103/1947-2714.187146](https://doi.org/10.4103/1947-2714.187146)
+
 Vicedo-Cabrera, A. M., Sera, F., Guo, Y., Tong, S., Coelho, M., Saldiva, P., Lavigne, E., Correa, P. M., Ortega, N. V., Kan, H., Osorio, S., Kyselý, J., Urban, A., Orru, H., Indermitte, E., Jaakkola, J. J. K., Ryti, N. R. I., Pascal, M., Goodman, P. G., … Gasparrini, A. (2019). Temperature-related mortality impacts under and beyond Paris Agreement climate change scenarios. *Climatic Change*, 153(3–4), 381–395. [https://doi.org/10.1007/s10584-019-02483-2](https://doi.org/10.1007/s10584-019-02483-2)
+
 World Meteorological Organization. (2017). *Guidelines on the calculation of climate normals (WMO-No. 1203).* [https://doi.org/10.25607/OBP-38](https://doi.org/10.25607/OBP-38)
+
 Zhang, X., Alexander, L., Hegerl, G. C., Jones, P., Klein Tank, A., Peterson, T. C., Trewin, B., & Zwiers, F. W. (2011). Indices for monitoring changes in extremes based on daily temperature and precipitation data. *WIREs Climate Change*, 2(6), 851–870. [https://doi.org/10.1002/wcc.147](https://doi.org/10.1002/wcc.147)
+
 Zou, H., & Hastie, T. (2005). Regularization and variable selection via the elastic net. *Journal of the Royal Statistical Society: Series B (Statistical Methodology)*, 67(2), 301–320. [https://doi.org/10.1111/j.1467-9868.2005.00503.x](https://doi.org/10.1111/j.1467-9868.2005.00503.x)
