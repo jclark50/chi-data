@@ -19,8 +19,8 @@ The workflow extracts disease counts (e.g., dengue, leptospirosis) from PDFs, li
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/[your-org]/[repo-name].git
-   cd [repo-name]
+   git clone https://github.com/jclark50/chi-data.git
+   cd chi-data
    ```
 
 2. **Install R dependencies**
