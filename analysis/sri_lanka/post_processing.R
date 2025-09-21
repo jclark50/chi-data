@@ -272,10 +272,12 @@ r <- rast(tif_file)
 
 # Dissolve to district and match raster CRS
 adm2_diss <- adm2 |>
-  dplyr::select(district, geometry) |>
-  dplyr::group_by(district) |>
-  dplyr::summarise(geometry = st_union(geometry), .groups = "drop") |>
+  dplyr::select(province, geometry) |>
+  dplyr::group_by(province) |>
+  dplyr::summarise(geometry = st_union(geometry), .groups = "drop")|>
   st_transform(crs(r))
+
+names(adm2_diss) <- c("district","geometry")
 
 # Legend mapping
 class_map <- data.table(
