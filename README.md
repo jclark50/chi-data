@@ -1,6 +1,6 @@
 # CHI-Data
 
-**Climate & Health Initiative (CHI) Data Repository**  
+**Climate & Glohal Health Initiative (CGHI) Data Repository**  
 This repository provides a shared structure for storing, processing, and analyzing climate and health datasets used across CHI projects. It contains reproducible pipelines, helper functions, and project-specific analyses (e.g., Madagascar, Sri Lanka), each with their own outputs (tables, figures).
 
 ---
